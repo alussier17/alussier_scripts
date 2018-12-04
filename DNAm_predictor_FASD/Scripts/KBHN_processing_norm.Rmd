@@ -1,0 +1,425 @@
+---
+title: "Chudley preprocessing"
+output: html_document
+---
+
+*Packages*
+```{r}
+setwd("~/Chudley_NDN/")
+library(methylumi)
+library(gplots)
+library(marray)
+library(lumi)
+library(lattice)
+library(RColorBrewer)
+library(knitr)
+library(xtable)
+
+```
+
+*Loading files*
+```{r}
+sampleFile <- ("~/Chudley_NDN/chudley_NDN_metadata_new.csv") #text file with phenotype variables: sex, age, etc.
+allFile <- ("~/Chudley_NDN/GS_Jan_2016/chudley-alldata.txt") 
+betaFile <- ("~/Chudley_NDN/GS_Jan_2016/chudley-avgbeta.txt")
+qcFile <- ("~/Chudley_NDN/GS_Jan_2016/chudley-qcfile.txt") 
+
+file.exists(allFile)
+file.exists(betaFile)
+file.exists(qcFile)
+file.exists(sampleFile)
+```
+
+*Methylumi files*
+```{r}
+chudley.raw <- lumiMethyR(allFile)
+chudley.2.raw <- methylumiR(betaFile, qcfile = qcFile)
+
+dim(chudley.raw) # probes = 485,577, n = 53
+dim(chudley.2.raw) # probes = 485,577, n = 53
+```
+
+*Add metadata*
+```{r}
+sampleInfo <- read.csv(sampleFile, row.names=1, header = T,stringsAsFactors=F)
+stopifnot(all(sampleNames(chudley.raw)%in%rownames(sampleInfo))) #TRUE (same order with the same sample names?)
+
+head(sampleInfo <- sampleInfo[sampleNames(chudley.raw),])
+str(pData(chudley.raw) <- sampleInfo)
+View(sampleInfo)
+
+chudley.raw <- chudley.raw[, order(chudley.raw$Sentrix_ID)]
+chudley.2.raw <- chudley.2.raw[, sampleNames(chudley.raw)]
+sampleInfo <- sampleInfo[order(sampleInfo$Sentrix_ID),]
+
+```
+
+*Save raw files*
+```{r}
+#save(chudley.raw, file ='chudley(raw).RData')
+sampleNames(chudley.2.raw)
+sampleNames(chudley.raw)
+sampleNames(chudley.2.raw) <- rownames(sampleInfo)
+#save(chudley.2.raw, file ='chudley.2(raw).RData')
+
+#from now on will be using chudley_wc object, these are our "working projects". Will save other objects as we go...
+load("~/Chudley_NDN/chudley(raw).RData")
+load("chudley.2(raw).RData")
+
+chudley_wc <- chudley.raw
+dim(chudley_wc) #probes = 485577, samples = 53
+chudley.2_wc <- chudley.2.raw
+dim(chudley.2_wc) #probes = 485577, samples = 53
+```
+
+```{r}
+par(cex = 0.7)
+par(mfrow=c(1,1))
+plotSampleRelation(chudley_wc, method = "mds", col = as.factor(chudley_wc$Sentrix_ID), addLegend=F)
+#WH014_1 looks like an outlier
+#legend ("top", legend = levels (factor (chudley_wc$Sentrix_ID)), fill = 1:nlevels (factor (chudley_wc$Sentrix_ID)), horiz = F)
+
+plotSampleRelation(chudley_wc, method = "mds", col = as.factor(chudley_wc$Sex), addLegend=F) 
+#legend ("top", legend = levels (factor (chudley_wc$Sex)), fill = 1:nlevels (factor (chudley_wc$Sex)))
+```
+
+*Add magdas annotation*
+```{r}
+magprice <- read.delim("~/Rscripts/Price_platform_only.txt", row.names=1)
+colnames(magprice) <- paste(colnames(magprice), "price", sep="_")
+fData(chudley_wc) <- cbind(fData(chudley_wc), magprice)
+dim(chudley_wc) #485512
+
+fdat <- fData(chudley_wc)
+```
+
+
+*Remove SNP & XY probes*
+```{r}
+chudley.rs <- chudley_wc[substring(featureNames(chudley_wc), 1, 2) == "rs", ] 
+dim(chudley.rs) # SNP probes = 65, n = 53
+snp_probes65 <- rownames(chudley.rs)
+save(snp_probes65, file = "chudley_snp_probes65.RData")
+
+par(cex = 0.7)
+plotSampleRelation(chudley.rs, method = "cluster")
+#WD310B/D are replicates
+
+chudley_wc <- chudley_wc[substring(featureNames(chudley_wc),1,2) != "rs", ]
+
+dim(chudley_wc) # probes = 485,512, n = 53
+#save(chudley.rs, file = "chudley(onlySNPprobes).RData")
+
+# Removing XY Probes (targets the X or Y) 
+chudley.xy <- chudley_wc[fData(chudley_wc)$CHR%in%c("X","Y"),]
+dim (chudley.xy) # 11648, 53
+
+XYprobes <- rownames(chudley.xy)
+save(XYprobes, file = "chudley_XYprobes.RData")
+chudley_wc<- chudley_wc[!fData(chudley_wc)$CHR%in%c("X","Y"),]
+dim(chudley_wc) # 473864, 53
+```
+
+*Sex sanity check*
+```{r}
+XYcor <- cor(betas(chudley.xy), use = "pairwise.complete.obs")
+
+sexCol <- chudley_wc$Sex
+sexCol <- gsub("M", "black", gsub("F", "grey", sexCol))
+library(RColorBrewer)
+library(gplots)
+BuPu <- brewer.pal(9, "BuPu")
+plot.new()
+heatmap.2(XYcor,main = "Correlation of samples using XY probes (n = 11,648",
+          trace = "none", col = BuPu, dendrogram = "both",
+          ColSideColors = sexCol, cexCol = 0.9,
+          keysize = 1)
+legend("top", bty = "n", title = "top bar colours", c("Male", "Female"), cex = 1,
+       fill = c("black", "grey"), ncol = 2)
+#WH004 is definitely a male, not a female
+pData(chudley_wc)$Sex[grep("WH004",rownames(pData(chudley_wc)))] <- "M"
+#fixed
+
+```
+
+
+*Checking which samples to remove
+```{r}
+pvals(chudley.raw)
+avgPval <- colMeans(pvals(chudley.raw))
+barplot(avgPval,ylab="Average P-Value",width=800) # barplot of samples average pvals
+
+boxplot(estimateIntensity(exprs(chudley.raw)))
+sample.Pval <- detectionCall(chudley.raw, Th=0.01, type="sample")
+which((sample.Pval>485577 -(485577*.05))==FALSE) #WH026, WD107_1_Rep1, WH014_1 (samples with 1% of site det p>0.05 == WD294_2,WH008A_1, WH270 also)
+mldatM.samp <- chudley.raw[,(sample.Pval>485577 -(485577*.05))] #3 samples with  >5% sites with det p>0.05 removed
+485577 - (485577*.01)
+dim(mldatM.samp) 
+
+plotSampleRelation(mldatM.samp, method = "cluster", horiz = T)
+length(which(pData((mldatM.samp))$Group == "Control"))
+heatmap.2(cor(mldatM.samp), trace="none")
+
+density(mldatM.samp, legend= "none")
+
+avgPval <- colMeans(pvals(chudley.raw))
+barplot(avgPval,ylab="Average P-Value", ylim=c(0,0.006), las=2)
+
+
+boxplot(estimateIntensity(chudley.raw))
+density(estimateIntensity(chudley.raw), xlab="log2(CpG-site Intensity)")
+hist(chudley.raw)
+
+
+```
+
+
+```{r}
+# Removing bad probes
+all(featureNames(chudley_wc)%in%featureNames(chudley.2_wc)) #true
+all(sampleNames(chudley_wc)%in%sampleNames(chudley.2_wc))  #true
+avgbeta <- betas(chudley.2_wc)[featureNames(chudley_wc),sampleNames(chudley_wc)]
+badAvgbeta <- is.na(avgbeta)
+dotchart(colSums(badAvgbeta), cex=0.4, main = paste("Bad Avg Beta: probes = 473,864"))
+nbadAvgbeta <- print(sum(rowSums(badAvgbeta)>=5)) # 762 (758 when removing WH014_1 less )
+
+badDetP <- detection(chudley_wc)>0.01
+nbadDetP <- print(sum(rowSums(badDetP)>=5)) # 17451 (1749 come from WH014_1 ~10%)
+dotchart(colSums(badDetP),main=paste("Bad Det P, probes = 473,684"), cex = 0.4)
+      #worst replicates = WH004_rep2, WD107_1_rep1, WD310B
+
+badProbes<-rownames(badAvgbeta)[rowSums(badAvgbeta)>=5|rowSums(badDetP)>=5]
+length(badProbes) # 18064
+
+chudley_wc <- chudley_wc[!featureNames(chudley_wc)%in%badProbes] 
+
+dim(chudley_wc) # 455800, 53
+```
+
+
+```{r}
+# Removing polymorphic CpGs probes #19078
+snp_index <- which(is.na(fData(chudley_wc)$n_SNPCpG_price))
+chudley_wc<- chudley_wc[snp_index, ] 
+dim(chudley_wc) # 436722, 36
+455800 - 436722
+
+colnames(fdat)
+# Removing multiple XY binder probes #10446
+xy_hit_index <- which(fData(chudley_wc)$XY_Hits_price == "XY_NO") 
+chudley_wc<- chudley_wc[xy_hit_index, ]
+dim(chudley_wc) # 426276 , 53
+436722-426276
+#485577 - 426276 =    59301 removed ### 
+```
+
+
+*Removing bad samples*
+```{r}
+load("~/Chudley_NDN/chudley.2(raw).RData")
+chudley_wc.noout <- chudley.raw 
+chudley.2_wc.noout <- chudley.2.raw
+chudley_wc.noout <- chudley_wc.noout[,!(colnames(chudley_wc.noout) %in% c("WH014_1", "WH026", "WD107_1_Rep1"))]
+chudley.2_wc.noout <- chudley.2_wc.noout[,!(sampleNames(chudley.2_wc.noout) %in% 
+                                              c("WH014_1", "WH026", "WD107_1_Rep1"))]
+dim(chudley_wc.noout)
+dim(chudley.2_wc.noout)
+
+chudley_wc.noout <- chudley_wc.noout[substring(featureNames(chudley_wc.noout),1,2) != "rs", ]
+dim(chudley_wc.noout)
+magprice <- read.delim("~/Rscripts/Price_platform_only.txt", row.names=1)
+colnames(magprice) <- paste(colnames(magprice), "price", sep="_")
+fData(chudley_wc.noout) <- cbind(fData(chudley_wc.noout), magprice)
+dim(chudley_wc.noout) #485512
+
+chudley_wc.noout <- chudley_wc.noout[!fData(chudley_wc.noout)$CHR%in%c("X","Y"),]
+pData(chudley_wc.noout)$Sex[grep("WH004",rownames(pData(chudley_wc.noout)))] <- "M"
+dim(chudley_wc.noout) #473,864
+
+
+# Removing bad probes
+all(featureNames(chudley_wc.noout)%in%featureNames(chudley.2_wc.noout)) #true
+all(sampleNames(chudley_wc.noout)%in%sampleNames(chudley.2_wc.noout))  #true
+avgbeta.noout <- betas(chudley.2_wc.noout)[featureNames(chudley_wc.noout),sampleNames(chudley_wc.noout)]
+badAvgbeta.noout <- is.na(avgbeta.noout)
+dotchart(colSums(badAvgbeta.noout), cex=0.4, main = paste("Bad Avg Beta: probes = 473,864"))
+nbadAvgbeta.noout <- print(sum(rowSums(badAvgbeta.noout)>=5)) # 726
+
+badDetP.noout <- detection(chudley_wc.noout)>0.01
+nbadDetP.noout <- print(sum(rowSums(badDetP.noout)>=5)) # 11864 (~10% came from WH014_1)
+dotchart(colSums(badDetP.noout),main=paste("Bad Det P, probes = 473,684"), cex = 0.4)
+      #worst replicates = WH004_rep2, WD107_1_rep1, WD310B
+
+badProbes.noout<-rownames(badAvgbeta.noout)[rowSums(badAvgbeta.noout)>=5|rowSums(badDetP.noout)>=5]
+length(badProbes.noout) # 12,459
+
+chudley_wc.noout <- chudley_wc.noout[!featureNames(chudley_wc.noout)%in%badProbes.noout] 
+
+dim(chudley_wc.noout) # 461,405, 50
+
+# Removing polymorphic CpGs probes #19413
+snp_index.noout <- which(is.na(fData(chudley_wc.noout)$n_SNPCpG_price))
+chudley_wc.noout<- chudley_wc.noout[snp_index.noout, ] 
+dim(chudley_wc.noout) #  442028, 48
+461405 - 442028 = 19337
+
+
+# Removing multiple XY binder probes #10455
+xy_hit_index.noout <- which(fData(chudley_wc.noout)$XY_Hits_price == "XY_NO") 
+chudley_wc.noout <- chudley_wc.noout[xy_hit_index.noout, ]
+dim(chudley_wc.noout) # 431,544  , 48
+442028-431544 = 10484
+#485577 - 431544 =    54033 removed ### 
+
+save(chudley_wc.noout, file = "chudley.noout(preprocessed).RData")
+```
+
+
+*** NORMALIZATION ***
+
+```{r}
+load("~/Chudley_NDN/chudley.noout(preprocessed).RData")
+chudley_norm <- chudley_wc.noout
+heatmap.2(cor(exprs(chudley_wc.noout)), trace="none")
+quantile(cor(exprs(chudley_wc.noout)), probs = c(0,0.25,0.50,0.75,0.95))
+
+dim(chudley_norm) # 431544, 50
+chipCol <- rainbow(nlevels(factor(chudley_norm$Sentrix_ID)))[as.numeric(factor(chudley_norm$Sentrix_ID))]
+density(chudley_norm, col = chipCol, lty = 1, addLegend=F,
+        main = "chudley_noout after probe filtering, before col.corr and norm. - M-values by batch")
+
+chudley_norm.q <- lumiMethyN(chudley_norm,method="quantile")
+
+```
+
+*Subset-quartile within array (SWAN) normalization*
+```{r}
+target <- fData(QCdata(chudley.2_wc.noout))$TargetID =="NEGATIVE"
+grn <- methylated(QCdata(chudley.2_wc.noout))[target,]
+red <- unmethylated(QCdata(chudley.2_wc.noout))[target,]
+bkg <- rowMeans(cbind(colMeans(grn),colMeans(red)))
+
+#sanity check
+all(names(bkg)%in%sampleNames(chudley_norm.q)) #TRUE
+bkg <- bkg[sampleNames(chudley_norm.q)]
+
+
+#Let's load the required script for SWAN, and then run it.
+source("~/Rscripts/SWAN scripts.R")
+load("~/Rscripts/nCpG all.RData")
+
+all(featureNames(chudley_norm.q)%in%names(nCpG.all)) #TRUE
+fData(chudley_norm.q)$nCpG <- nCpG.all[featureNames(chudley_norm.q)]
+
+chudley_swan <- preprocessMSWAN(chudley_norm.q,bg=bkg)
+
+sum(is.na(exprs(chudley_swan))) # should be 0
+sum(is.na(unmethylated(chudley_swan))) # should be 0
+sum(is.na(methylated(chudley_swan))) # should be 0
+
+
+#Get the M and beta value outputs from CAM_wc.swan:
+M.chudley.swan <-exprs(chudley_swan)
+# write.table(M.chudley.swan,file='chudley.swan_M.txt')
+
+betas.chudley.swan <- m2beta(chudley_swan)
+# write.table(betas.chudley.swan,file='chudley.swan_B.txt')
+
+# save(chudley_swan,file = "chudley.swan.RData")
+```
+
+*Peak-based correction*
+```{r}
+chudley_pbc <- chudley_norm
+modifiedM <- peakBasedCorrection(chudley_norm)
+exprs(chudley_pbc) <- as.matrix(modifiedM[featureNames(chudley_pbc), sampleNames(chudley_pbc)])
+dim(chudley_pbc)
+
+```
+
+
+
+*Plot beta values before/after normalization*
+```{r} 
+type <- fData(chudley_norm)$INFINIUM_DESIGN_TYPE
+
+before.betas <- betas(chudley_norm)
+dim(before.betas)
+
+after.betas.SWAN <- betas(chudley_swan)
+dim(after.betas.SWAN)
+
+after.betas.PBC <- betas(chudley_pbc)
+
+plot.new()
+par(mfrow = c(1, 1))
+plot(c(0, 1) , c(0, 10), type = "n", xlab = "Beta values", ylab = "Density")
+lines(density(na.omit(before.betas)[type=="I",]),col="blue",lty=1, lwd =3)
+lines(density(na.omit(before.betas)[type=="II",]),col="blue",lty=2, lwd=3)
+lines(density(na.omit(after.betas.SWAN)[type=="I",]),col="firebrick2",lty=1, lwd = 3)
+lines(density(na.omit(after.betas.SWAN)[type=="II",]),col="firebrick2",lty=2, lwd=3)
+lines(density(na.omit(after.betas.PBC)[type=="I",]),col="green",lty=1, lwd = 3)
+lines(density(na.omit(after.betas.PBC)[type=="II",]),col="green",lty=2, lwd=3)
+legend("top", inset=.05, cex=0.8, c("Before Type 1","Before Type 2", "SWAN Type 1", "SWAN Type 2"), col=c("blue","blue","firebrick2","firebrick2"), lwd=3, lty=c(1,2,1,2), horiz=FALSE)
+```
+#peak based correction looks much better
+
+*Replicates*
+```{r}
+sampleNames(chudley_norm)
+# WD107_1_Rep2 <- Rep1 removed because of bad probes
+# WH004A_Rep1 & WH004_2_Rep2
+# WD310B & WD310D
+
+cor(exprs(chudley_norm[, grep("WH004", sampleNames(chudley_norm))])) #0.9947
+cor(exprs(chudley_norm[, grep("WD310", sampleNames(chudley_norm))])) #0.9943
+
+
+WH004A.raw <- chudley_norm[, grep("WH004", sampleNames(chudley_norm))]
+WH004A.pbc <- chudley_pbc[, grep("WH004", sampleNames(chudley_pbc))]
+WH004A.swan <- chudley_swan[, grep("WH004", sampleNames(chudley_swan))]
+
+WD310.raw <- chudley_norm[, grep("WD310", sampleNames(chudley_norm))]
+WD310.pbc <- chudley_pbc[, grep("WD310", sampleNames(chudley_pbc))]
+WD310.swan <- chudley_swan[, grep("WD310", sampleNames(chudley_swan))]
+
+
+plot.new()
+par(mfrow = c(2,3))
+density(WH004A.raw,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WH004 quantile")
+density(WH004A.pbc,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WH004 pbc")
+density(WH004A.swan,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WH004 swan")
+
+density(WD310.raw,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WD310 raw")
+density(WD310.pbc,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WD310 pbc")
+density(WD310.swan,legend="bottom", lty = 1, xlim = c(-6, 6), main = "WD310 swan")
+par(mfrow = c(1, 1))
+
+
+#removal of replicates -- worst replicates from earlier = WH004_2_Rep2 & WD310B
+
+chudley_clean <- chudley_swan[,!(colnames(chudley_swan) %in% c("WH004_2_Rep2", "WD310B"))]
+dim(chudley_clean) #431544, 48 
+#save(chudley_clean, file = "chudley_preprocessed_norm.RData")
+
+density(chudley_clean, legend="none")
+
+plot.new()
+par(mfrow = c(3,4))
+for(i in 1:48){
+  tryCatch(density(chudley_clean[,i], xlim = c(-6, 6), ylim = c(0,0.5), legend="none"), error=function(e) NULL)
+  print(i)
+}
+
+length(which(pData(chudley_clean)$Group == "Control")) #24
+length(which(pData(chudley_clean)$Group == "FASD")) #24
+sampleNames(chudley_clean)
+
+
+```
+
+
+
+
+
+

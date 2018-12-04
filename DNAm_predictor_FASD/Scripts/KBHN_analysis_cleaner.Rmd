@@ -1,0 +1,1382 @@
+---
+title: "KBHN_analysis_clean"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+*Loading packages*
+```{r}
+setwd("~/Chudley_NDN/")
+library(methylumi)
+library(gplots)
+library(marray)
+library(lattice)
+library(limma)
+library(lumi)
+library(RColorBrewer)
+library(knitr)
+library(xtable)
+library(RColorBrewer)
+library(superheat)
+library(sva)
+library(caret)
+library(pROC)
+library(Biobase)
+library(GEOquery)
+library(BlandAltmanLeh)
+library(Hmisc)
+library(corrplot)
+
+
+heat.col <- colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+
+write.csv(pData(final2), file = "~/NDN1.metadata.csv")
+final2.hits <- (final2[which(rownames(final2) %in% elodie.hits$Probe),])
+write.csv(exprs(final2.hits), file = "~/NDN1.hits.mvalues.csv")
+write.csv(betas(final2.hits), file = "~/NDN1.hits.betas.csv")
+```
+
+*Restructuring metadata*
+```{r}
+load("~/Chudley_NDN/chudley_preprocessed_norm.RData")
+
+meta <- pData(chudley_clean)
+meta$Sample_Plate <- as.factor(meta$Sample_Plate)
+meta$Sentrix_ID <- as.factor(meta$Sentrix_ID)
+meta$Sentrix_Position <- as.factor(meta$Sentrix_Position)
+meta$Age <- as.numeric(meta$Age)
+# WD284_1 age was inputed based on date of birth and age of other participants
+meta[c(1,2,3,4,5,15,20,24,40,48, which(is.na(meta$Age))),7:8] # looks like collection was done in 2011 and DOB is 2009, so age=2 
+meta$Age[which(is.na(meta$Age))] <- 2
+meta$Sex <- as.factor(meta$Sex)
+meta$Ethnicity <- as.factor(meta$Ethnicity)
+meta$Group <- as.factor(meta$Group)
+meta$FASD_status[c(1,7,46)] <- "ARND"
+meta$FASD_status <- gsub("^$", "Ctl", meta$FASD_status)
+meta$FASD_status <- factor(meta$FASD_status, level = c("Ctl","FAS", "pFAS", "ARND"))
+meta$ADHD <- as.factor(meta$ADHD)
+meta$Depression <- as.factor(meta$Depression)
+meta$Anxiety <- as.factor(meta$Anxiety)
+meta$Caregiver <- as.factor(meta$Caregiver)
+meta$Current_meds <- as.factor(meta$Current_meds)
+meta$Past_meds <- as.factor(meta$Past_meds)
+meta$ODD <- as.factor(meta$ODD)
+
+#correcting position coding
+chud.corr.pos <- do.call(rbind,lapply(1:nrow(meta), function(x){
+  a <- strsplit2(meta$Sentrix_Position[x], "C")
+  b <- data.frame(row = 1, col = 1)
+  if(a[,1] == "R01")
+    b$row <- "A"
+  if(a[,1] == "R02")
+    b$row <- "B"
+  if(a[,1] == "R03")
+    b$row <- "C"
+  if(a[,1] == "R04")
+    b$row <- "D"
+  if(a[,1] == "R05")
+    b$row <- "E"
+  if(a[,1] == "R06")
+    b$row <- "F"
+  if(a[,1] == "R07")
+    b$row <- "G"
+  if(a[,1] == "R08")
+    b$row <- "H"
+  
+  if(a[,2] %in% c("01", "02","03","04","05","06","07","08","09"))
+    b$col <- strsplit2(a[,2], "0")[2]
+  colnames(b) <- c("Plate_row", "Plate_column")
+  b
+}))
+
+meta <- cbind(meta, chud.corr.pos)
+meta[,which(colnames(meta) %in% c("Sentrix_Position", "Plate_row", "Plate_column"))]
+
+#interpretation of raw metadata 
+meta$first.nations <- 0 
+meta$first.nations[c(grep("First nations", meta$Ethnicity), grep("Aboriginal", meta$Ethnicity),
+                   grep("Metis", meta$Ethnicity), grep("Cree", meta$Ethnicity), grep("Native", meta$Ethnicity))] <- 1 
+meta$first.nations <- as.factor(meta$first.nations)
+
+meta$Biological_family <- 1 
+meta$Biological_family[c(grep("Adoptive", meta$Caregiver), grep("guardian", meta$Caregiver), grep("Foster", meta$Caregiver))] <-0
+meta$Biological_family <- as.factor(meta$Biological_family)
+
+meta$Single_parent <- 0
+meta$Single_parent[c(grep("mom", meta$Caregiver), grep("dad", meta$Caregiver))] <- 1
+meta$Single_parent <- as.factor(meta$Single_parent)
+
+#write.table(meta, file = "~/Chudley_NDN/chudley_ndn_metadata.txt", sep ="\t", col.names=T, quote =F)
+
+ncol(meta)
+meta_categorical <- meta[, c(3,4,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)]
+meta_continuous <- as.data.frame(meta$Age)
+colnames(meta_continuous) <- "Age"
+
+summary(meta[which(meta$Plate_column == 1),])
+summary(meta[which(meta$Plate_column == 2),])
+```
+
+*PCA*
+```{r}
+source("~/Rscripts/heat_scree_plot.R")
+str(pData(chudley_clean))
+
+PCA_full <- princomp(exprs(chudley_clean))
+Loadings <- as.data.frame(unclass(PCA_full$loadings))
+vars <- PCA_full$sdev^2
+Importance <- vars/sum(vars)
+
+PCs_to_view<-15
+heat_scree_plot(Loadings, Importance)
+
+#slightly confounded for age (FASD younger)
+summary(meta$Age[which(meta$Group == "FASD")], na.rm=T)    #2-18 , mean = 9.1 , median = 7.5
+summary(meta$Age[which(meta$Group == "Control")], na.rm=T) #5-17 , mean = 11.6 , median = 12
+
+t.test(meta$Age[which(meta$Group == "FASD")], meta$Age[which(meta$Group == "Control")]) #p =0.0485
+ks.test(meta$Age[which(meta$Group == "FASD")], meta$Age[which(meta$Group == "Control")]) #p =0.1389
+
+
+plot(density(meta$Age[which(meta$Group == "FASD")]), col = "blue", main = "Age distributions",
+     xlab = "Age")
+legend("topright",c("FASD","Control"), fill = c("blue","darkgrey"), box.lwd = 0)
+lines(density(meta$Age[which(meta$Group == "Control")]), col = "darkgrey")
+abline(v=9.083, col = "blue", lty = 2)
+abline(v=11.62, col = "darkgrey", lty =2)
+
+
+#confounded for ethnicity (mostly First Nations in FASD - First nations, Cree, Metis, Aboriginal, Native)
+summary(meta$first.nations[which(meta$Group == "FASD")], na.rm=T)     #20 with first nations roots, 4 with none
+summary(meta$first.nations[which(meta$Group == "Control")], na.rm=T)  #1 with first nations roots , 23 with none
+
+
+t.test(as.numeric(meta$Age[which(meta$Group == "FASD")]), as.numeric(meta$Age[which(meta$Group == "Control")]))
+
+t.test(as.numeric(meta$first.nations[which(meta$Group == "FASD")]), as.numeric(meta$first.nations[which(meta$Group == "Control")]))
+#p=1.244e-10
+
+#confounded for biological family (mostly first nations in FASD - First nations, Cree, Metis, Aboriginal)
+summary(meta$Biological_family[which(meta$Group == "FASD")], na.rm=T)     #10 with family (3 w/grandparents), 14 foster care/adopted/guardian
+summary(meta$Caregiver[which(meta$Group == "Control")], na.rm=T)  #24 with family , 0 foster care/adopted/guardian
+
+t.test(as.numeric(meta$Caregiver[which(meta$Group == "FASD")]), 
+       as.numeric(meta$Caregiver[which(meta$Group == "Control")])) #p=0.002735
+
+length(which(meta$Sex[which(meta$Group == "FASD")] == "M")) #15 males, 9 females
+length(which(meta$Sex[which(meta$Group == "Control")] == "M")) #11 males, 13 females
+t.test(as.numeric(meta$Sex[which(meta$Group == "FASD")]), as.numeric(meta$Sex[which(meta$Group == "Control")])) #p=0.2559
+
+#could Sentrix_ID in PC4 - going to remove
+#weird that first two PCs are empty...
+
+
+```
+
+*ComBat correction*
+```{r}
+mod <- model.matrix(~as.factor(Group), data=pData(chudley_clean))
+heat_scree_plot(Loadings, Importance)
+
+#removing Sentrix_ID batch effect
+batch = as.factor(meta$Sentrix_ID)
+chudley.combat <- ComBat(dat= exprs(chudley_clean), batch=batch, mod = mod)
+
+PCA_full<-princomp(chudley.combat, cor = T)
+Loadings<-as.data.frame(unclass(PCA_full$loadings))
+vars <- PCA_full$sdev^2
+Importance<-vars/sum(vars)
+heat_scree_plot(Loadings, Importance)
+
+#removing Sentrix_position batch effect
+batch.2 =as.factor(meta$Sentrix_Position)
+chudley.combat.2 <- ComBat(dat=  chudley.combat, batch=batch.2, mod = mod)
+
+
+PCA_full<-princomp(chudley.combat.2, cor = T)
+Loadings<-as.data.frame(unclass(PCA_full$loadings))
+vars <- PCA_full$sdev^2
+Importance<-vars/sum(vars)
+heat_scree_plot(Loadings, Importance)
+
+
+#save(chudley.combat.2, file = "chudley_combat_corr.RData")
+```
+
+*WBC inference*
+```{r}
+source("~/Rscripts/Saliva deconvolution/wbcInference.R")
+load("~/Rscripts/Saliva deconvolution/Validation-Coefficients_price.RData")
+
+# Contrast matrix for PanT rearrangement [*see details in help*]
+Lwbc = diag(4)[-(1),] 
+Lwbc[,1] = 1
+rownames(Lwbc) = colnames(coefEsts1)[-(1)]
+colnames(Lwbc) = colnames(coefEsts1)
+
+Lwbc # View contrast matrix
+
+CpGSelection = rownames(coefEsts1)[1:100] 
+
+####### Projections for data
+index<-row.names(chudley.combat.2)%in%CpGSelection
+preterm_meth2<- betas(chudley.combat.2[index,])
+ordernew<-match(CpGSelection,row.names(preterm_meth2))
+preterm_meth2<-preterm_meth2[ordernew,]
+
+unconstrainedCoefs = projectWBC(
+  preterm_meth2[1:100,],
+  coefEsts1[CpGSelection,],    
+  Lwbc, nonnegative = FALSE)
+
+
+constrainedCoefs = projectWBC(
+  preterm_meth2[1:100,],
+  coefEsts1[CpGSelection,],    
+  Lwbc)
+
+
+constrainedCoefs<-round(100*constrainedCoefs)
+#cotrial<-merge(preterm_phen,constrainedCoefs,by.x=0,by.y=0)
+#trial2<-merge(trial,unconstrainedCoefs,by.x=1,by.y=0)
+write.csv(constrainedCoefs,file="~/Chudley_NDN/YEP_saliva_cellpredict.csv",quote=FALSE)
+constrainedCoefs <- read.csv("~/Chudley_NDN/YEP_saliva_cellpredict.csv", row.names = 1)
+
+
+head(unconstrainedCoefs)
+head(constrainedCoefs)
+pData(chudley_clean) <- cbind(pData(chudley_clean), constrainedCoefs)
+colnames(meta_categorical)[14] <- "first_nations"
+meta_continuous <- cbind(meta_continuous, unconstrainedCoefs)
+heat_scree_plot(Loadings, Importance)
+
+t.test(unconstrainedCoefs[grep("WH", rownames(unconstrainedCoefs)),3], 
+       unconstrainedCoefs[grep("WD", rownames(unconstrainedCoefs)),3])
+
+plot(density(unconstrainedCoefs[grep("WD", rownames(unconstrainedCoefs)),3]), col = "grey", xlim = c(0.4,1))
+lines(density(unconstrainedCoefs[grep("WH", rownames(unconstrainedCoefs)),3]), col = "blue")
+
+
+t.test(pData(chudley_clean)$Buccal[which(pData(chudley_clean)$Group == "FASD")],
+       pData(chudley_clean)$Buccal[which(pData(chudley_clean)$Group == "Control")])
+
+meta_cont.pmat <- rcorr(as.matrix(meta_continuous), type = "pearson")$P 
+meta_cont.pmat.2 <- meta_cont.pmat
+meta_cont.pmat.2[which(meta_cont.pmat >0.05)] <- NA
+
+corrplot(cor(meta_continuous),type =  "upper", method = "color", diag=T, insig = "pch", pch="x", 
+         pch.cex = 1.8, sig.level = 0.05, p.mat = meta_cont.pmat, mar = c(3,3,3,3))
+#looks like cell type proportions correlate with SVs - excellent, can use SVA to correct for them.
+
+
+chudley.celltype <- data.frame(group = pData(chudley.combat.2)$Group,unconstrainedCoefs)
+plot(density(chudley.celltype$Buccal[which(chudley.celltype$group =="Control")], color = grey))
+lines(density(chudley.celltype$Buccal[which(chudley.celltype$group =="FASD")], color ="blue"))
+
+t.test(chudley.celltype$Buccal[which(chudley.celltype$group =="FASD")], chudley.celltype$Buccal[which(chudley.celltype$group =="Control")])
+t.test(chudley.celltype$CD34[which(chudley.celltype$group =="FASD")], chudley.celltype$CD34[which(chudley.celltype$group =="Control")])
+t.test(chudley.celltype$CD14[which(chudley.celltype$group =="FASD")], chudley.celltype$CD14[which(chudley.celltype$group =="Control")])
+
+```
+
+*subsetting the dataset down to the top probe's from NDN I cohort findings*
+```{r}
+elodie.hits <- read.csv("~/NDN_FASD_I/NDN_I.hits.csv")
+dim(elodie.hits)
+elodie.hits <- elodie.hits[1:658,] #some weird stuff going on - extra 54 empty rows removed
+tail(elodie.hits) #looks good now
+
+elodie.hits.up <- elodie.hits[which(elodie.hits$delta.correctedBeta >0),]
+elodie.hits.down <- elodie.hits[which(elodie.hits$delta.correctedBeta <0),]
+  
+elodie.top <- elodie.hits[which(abs(elodie.hits$delta.correctedBeta)>= 0.05),] #2 of 41 missing from dataset
+elodie.top.up <- elodie.top[which(elodie.top$delta.correctedBeta >0),]
+elodie.top.down <- elodie.top[which(elodie.top$delta.correctedBeta <0),]
+
+length(which(elodie.hits$Probe %in% rownames(chudley.combat.2))) # only 648 of 658 are in this dataset
+missing <- elodie.hits[(which(!elodie.hits$Probe %in% rownames(chudley.combat.2))),] #those missing from dataset
+load("~/Price_annotation.RData")
+
+chudley.elodie <- chudley.combat.2[which(rownames(chudley.combat.2) %in% elodie.hits$Probe),]
+dim(chudley.elodie) #648 of 658
+
+#loading price annotation
+magprice <- read.delim("~/Rscripts/Price_platform_only.txt", row.names=1)
+```
+
+*SVA*
+```{r}
+load("~/Chudley_NDN/chudley_combat_corr.RData")
+#Group (FASD vs Control) protected - all probes
+mod <- model.matrix(~as.factor(Group), data=pData(chudley_clean))
+mod0 = model.matrix(~1,data=pData(chudley_clean))
+n.sv = num.sv(chudley.combat.2, mod)
+n.sv #7
+svobj = sva(chudley.combat.2,mod,mod0, n.sv = n.sv)
+
+#save(svobj, file = "~/Chudley_NDN/chudley_group_alldat_sva.RData")
+load("~/Chudley_NDN/chudley_group_alldat_sva.RData")
+meta_continuous <- cbind(meta_continuous, svobj.2$sv)
+colnames(meta_continuous)[2:7] <- c("SV1","SV2","SV3","SV4","SV5","SV6")
+heat_scree_plot(Loadings, Importance)
+
+
+```
+
+*Correct analysis - 648 CpGs from NDN I using SVs from entire dataset*
+```{r}
+#SVs only
+model.3 <- model.matrix(~Group, data = pData(chudley_clean))
+model.3 <- cbind(model.3, svobj$sv)
+
+chel.fit.3 <- lmFit(chudley.elodie, design = model.3)
+chel.fit.3 <- eBayes(chel.fit.3)
+chel.table.3 <- topTable(chel.fit.3, coef=grep("FASD", colnames(chel.fit.3$coefficients)), adjust.method = "BH", number = "Inf")
+head(chel.table.3)
+densityplot(chel.table.3$P.Value, xlab = "p-value", main = "P-value distribution of 648 probes from NDN I")
+
+
+chel.sv.sig <- (chel.table.3[which(chel.table.3$adj.P.Val <= 0.05),]) #178 hits significant SVs only 
+dim(chel.sv.sig) 
+chel.sv.sig.up <- chel.sv.sig[which(chel.sv.sig$logFC >0),] #89
+chel.sv.sig.down <- chel.sv.sig[which(chel.sv.sig$logFC <0),] #71
+
+
+length(which(rownames(chel.sv.sig.up) %in% elodie.hits.up$Probe)) 
+length(which(rownames(chel.sv.sig.down) %in% elodie.hits.down$Probe)) 
+
+chel.sv.sig.cor <-  chel.sv.sig[which(rownames(chel.sv.sig) %in% 
+                                      c(rownames(chel.sv.sig.up[(which(rownames(chel.sv.sig.up) %in% 
+                                                                         elodie.hits.up$Probe)),]),
+                                        rownames(chel.sv.sig.down[(which(rownames(chel.sv.sig.down) %in% 
+                                                                           elodie.hits.down$Probe)),])) ),]
+
+dim(chel.sv.sig.cor) #161 real hits (with same direction)
+length(which(rownames(chel.sv.sig.cor) %in% elodie.top$Probe)) #21/41
+
+```
+
+*Annotating hits*
+```{r}
+annot.chel <- magprice[which(rownames(magprice) %in% rownames(chel.sv.sig.cor)),]
+annot.chel <- annot.chel[match(rownames(chel.sv.sig.cor),rownames(annot.chel)),]
+
+annot.chel.2 <- data.frame(UCSC_REFGENE_NAME = fData(chudley_clean)$UCSC_REFGENE_NAME[which(rownames(chudley_clean)
+                                                                                                %in% rownames(chel.sv.sig.cor))],
+                               UCSC_REFGENE_GROUP = fData(chudley_clean)$UCSC_REFGENE_GROUP[which(rownames(chudley_clean)
+                                                                                                %in% rownames(chel.sv.sig.cor))])
+rownames(annot.chel.2) <- rownames(fData(chudley_clean))[which(rownames(chudley_clean) %in% rownames(chel.sv.sig.cor))]
+annot.chel.2 <- annot.chel.2[match(rownames(chel.sv.sig.cor), rownames(annot.chel.2)),]
+identical(rownames(annot.chel), rownames(chel.sv.sig.cor)) #TRUE
+identical(rownames(annot.chel.2), rownames(annot.chel)) #TRUE
+annot.chel.table <- data.frame(chel.sv.sig.cor, 
+                               delta_beta = chel.sv.betas.simp[match(rownames(chel.sv.sig.cor), 
+                                                                     rownames(chel.sv.betas.simp)),]$delta_beta,
+                               Closest_TSS = annot.chel$Closest_TSS, 
+                               Closest_TSS_gene_name = annot.chel$Closest_TSS_gene_name, 
+                               Closest_TSS_Transcript = annot.chel$Closest_TSS_Transcript,
+                               annot.chel.2)
+head(fData(chudley_clean))
+dim(annot.chel.table)
+write.csv(annot.chel.table, "~/Chudley_NDN/validated.hits.annotated.csv")
+```
+
+*Format for plotting and heatmaps*
+```{r}
+chel.sv.betas <- m2beta(chudley.combat.2)
+chel.sv.betas.sig <- chel.sv.betas[rownames(chel.sv.betas) %in% rownames(chel.sv.sig.cor),]
+dim(chel.sv.betas.sig)
+
+chel.sv.betas.sig.ord <- chel.sv.betas.sig[,order(colnames(chel.sv.betas.sig))]
+chel.sv.betas.sig.ord <- chel.sv.betas.sig.ord[,rev(colnames(chel.sv.betas.sig.ord))]
+chel.sv.betas.sig.ord <- chel.sv.betas.sig.ord[order(rowMeans(chel.sv.betas.sig.ord)),]
+chel.sv.betas.sig.ord <- chel.sv.betas.sig.ord[c(which(rownames(chel.sv.betas.sig.ord) %in% rownames(chel.sv.sig.up)),
+                                                 which(rownames(chel.sv.betas.sig.ord) %in%
+                                                         rownames(chel.sv.sig.down))),]
+head(chel.sv.betas.sig.ord)
+dim(chel.sv.betas.sig.ord)
+colside <- c(rep("#6C6C6C", 24), rep("#434CFB", 24))
+rowside <- c(rep("#A50026", 82), rep("#313695", 79))
+heat.col
+
+#clustering by group
+{distance.ctl = dist(t(chel.sv.betas.sig.ord[,1:24]))
+cluster.ctl = hclust(distance.ctl)
+plot(cluster.ctl)
+colnames(chel.sv.betas.sig.ord[,1:24])[(cluster.ctl$order)]
+
+distance.fasd = dist(t(chel.sv.betas.sig.ord[,25:48]))
+cluster.fasd = hclust(distance.fasd)
+plot(cluster.fasd)
+colnames(chel.sv.betas.sig.ord[,25:48])[(cluster.fasd$order)]
+
+chel.sv.betas.sig.ord.2 <- chel.sv.betas.sig.ord[,c(cluster.ctl$order, (24+cluster.fasd$order))]
+}
+
+par(mfrow = c(1,1))
+heatmap.2(chel.sv.betas.sig.ord, RowSideColors = rowside, ylab="Differentially methylated CpGs", xlab="Samples",
+          col = rev(heat.col), ColSideColors = colside, scale = "row", key.title = "", key.ylab = "", density.info="none",
+          trace = "none", Rowv = F, Colv = F, dendrogram = "none", labCol = F, labRow = F)
+plot.new()
+legend("left", fill = c("#6C6C6C", "#434CFB", "white", "#A50026", "#313695"), border = F, box.col = "white",
+       legend = c("Control","FASD","", "Hypermethylated (82)","Hypomethylated (79)"))
+
+heatmap.2(chel.sv.betas.sig.ord[which(rownames(chel.sv.betas.sig.ord) %in% rownames(chel.sv.sig.up)),], 
+          col = rev(heat.col), ColSideColors = colside, scale = "row",
+          trace = "none", Rowv = F, Colv = F, dendrogram = "none", labCol = F, labRow = F, key = F)
+heatmap.2(chel.sv.betas.sig.ord[which(rownames(chel.sv.betas.sig.ord) %in% rownames(chel.sv.sig.down)),], 
+          col = rev(heat.col), ColSideColors = colside, scale = "row",
+          trace = "none", Rowv = F, Colv = F, dendrogram = "none", labCol = F, labRow = F, key = F)
+
+
+head(t(chel.sv.betas.sig.ord))
+superheat(t(chel.sv.betas.sig.ord), scale = T,
+          left.label.size = 0.4,
+          bottom.label.size = 0.1,
+          membership.rows = c(rep("Control",24), rep("FASD",24)), 
+          membership.cols = c(rep("Up-methylated",82), rep("Down-methylated",79)),
+          heat.pal = c("#b35806", "white", "#542788"),
+          row.title = "Group",
+          row.title.size = 6)
+```
+
+*Top hits - ∆beta >0.05 - processing and plotting*
+```{r}
+#getting delta betas
+identical(colnames(chel.sv.betas.sig), rownames(meta))
+chel.sv.betas.simp <- data.frame(Control = rowMeans(chel.sv.betas.sig[,which(meta$Group =="Control")]), 
+                            FASD = rowMeans(chel.sv.betas.sig[,which(meta$Group =="FASD")]))
+chel.sv.betas.simp$delta_beta <- data.frame(delta_beta = chel.sv.betas.simp[,2]-chel.sv.betas.simp[,1])
+length(which(abs(chel.sv.betas.simp$delta_beta)>=0.05)) #53 of 161
+
+#selecting for those with ∆beta >0.05
+rownames(chel.sv.sig.cor)
+chel.sv.sig.cor.2 <- chel.sv.betas.sig[which(abs(chel.sv.betas.simp$delta_beta)>=0.05),]
+chel.sv.betas.simp.cor <- chel.sv.betas.simp[which(abs(chel.sv.betas.simp$delta_beta)>=0.05),]
+dim(chel.sv.sig.cor.2)
+
+#annotating best hits
+annot.hits <- magprice[which(rownames(magprice) %in% rownames(chel.sv.sig.cor.2)),]
+#colnames(annot.hits) <- gsub("_price_price_price","_price", colnames(annot.hits)) 
+annot.hits$Closest_TSS_gene_name
+dim(annot.hits)
+
+#making data frame for ggplot
+chel.sv.plotting <- data.frame(t(chel.sv.sig.cor.2), Group = as.factor(meta$Group),  Age = as.factor(meta$Age), 
+                               FASD_status = as.factor(meta$FASD_status), first.nations = as.factor(meta$first.nations), 
+                               Biol_fam = as.factor(meta$Biological_family))
+
+colnames(chel.sv.plotting)[1:53] <- paste(colnames(chel.sv.plotting)[1:53], annot.hits$Closest_TSS_gene_name, sep ="\n")
+chel.sv.group <- melt(chel.sv.plotting)
+chel.sv.group$gene <- as.factor(strsplit2(chel.sv.group$variable,"\n" )[,2])
+chel.sv.group$cpg <- as.factor(strsplit2(chel.sv.group$variable,"\n" )[,1])
+head(chel.sv.group)
+
+
+#getting average values from elodie's
+elodie.validated <- t(elodie.hits[which(elodie.hits$Probe %in% rownames(chel.sv.sig.cor.2)),c(4:5)])
+colnames(elodie.validated) <- (elodie.hits[which(elodie.hits$Probe %in% rownames(chel.sv.sig.cor.2)),c(1)])
+elodie.validated <- elodie.validated[,order(colnames(elodie.validated))]
+identical(colnames(elodie.validated[,order(colnames(elodie.validated))]), rownames(annot.hits)) #T
+colnames(elodie.validated) <- paste(colnames(elodie.validated), annot.hits$Closest_TSS_gene_name, sep ="\n")
+rownames(elodie.validated) <- c("FASD","Control")
+elodie.validated.melt <- melt(elodie.validated)
+colnames(elodie.validated.melt)[1:2] <- c("Group", "variable")
+elodie.validated.melt$gene <- as.factor(strsplit2(elodie.validated.melt$variable,"\n" )[,2])
+elodie.validated.melt$cpg <- as.factor(strsplit2(elodie.validated.melt$variable,"\n" )[,1])
+head(elodie.validated.melt)
+
+#getting delta betas for 53 validated hits with ∆beta >0.05
+delta.beta <- data.frame(cpg = rownames(chel.sv.betas.simp.cor), 
+                           value = round(chel.sv.betas.simp.cor$delta_beta, 3))
+delta.beta <- delta.beta[which(delta.beta$cpg %in% rownames(chel.sv.sig.cor)),]
+identical(rownames(annot.hits), as.character(delta.beta$cpg))
+delta.beta$gene <- annot.hits$Closest_TSS_gene_name
+head(delta.beta)
+
+head(chel.sv.group)
+head(elodie.validated.melt)
+unique(chel.sv.group$gene)
+ggplot(chel.sv.group[which(chel.sv.group$gene %in% c("FAM59B","HLA-DPA1","SLC6A3")),], aes(Group, value))+
+  geom_boxplot(width = 0.6, outlier.colour = NULL, aes(colour= as.factor(Group)))+
+  geom_jitter(width = 0.35, height = 0, aes(colour = as.factor(Group)))+
+  geom_point(data = elodie.validated.melt[which(elodie.validated.melt$gene %in% c("FAM59B","HLA-DPA1","SLC6A3")),], 
+             aes(Group, value), size =2, colour = "red", pch = 9)+
+  facet_wrap(~gene+cpg, nrow=2)+
+  geom_text(data = delta.beta[which(delta.beta$gene %in% c("FAM59B","HLA-DPA1","SLC6A3")),], 
+            aes(label = as.character(delta_beta), x=1.5, y = 0.95, group = NULL))+
+  ylim(0,1)+
+  ylab("Beta value")+
+  xlab("")+
+  scale_colour_manual(values = c("#6C6C6C","#434CFB"))+
+  theme_bw()+
+  ggtitle("53 validated hits from NDN I \n FDR<0.05, ∆beta>0.05")+
+  theme(
+    plot.title = element_text(face="bold"),
+    legend.title = element_text(colour="white"),
+    panel.grid.major.y = element_line(colour = "grey"), 
+    panel.grid.major.x = element_line(colour = "white"),
+    panel.grid.minor.x = element_line(colour = "white"))
+
+
+ggplot(chel.sv.group[which(chel.sv.group$gene %in% c("CACNA1A","DRD4")),], aes(Group, value))+
+  geom_boxplot(width = 0.6, outlier.colour = NULL, aes(colour= as.factor(Group)))+
+  geom_jitter(width = 0.35, height = 0, aes(colour = as.factor(Group)))+
+  #geom_point(data = elodie.validated.melt[which(elodie.validated.melt$gene %in% c("CACNA1A","DRD4")),], 
+  #           aes(Group, value), size =2, colour = "red", pch = 9)+
+  facet_wrap(~gene+cpg, nrow= 2, scale ="free")+
+  geom_text(data = delta.beta[which(delta.beta$gene %in% c("CACNA1A","DRD4")),],
+            aes(label = as.character(delta_beta), x=1.5, y = 0.97, group = NULL))+
+  ylim(0,1)+
+  ylab("Beta value")+
+  xlab("")+
+  scale_colour_manual(values = c("#6C6C6C","#434CFB"))+
+  theme_bw()+
+  #ggtitle("35 validated hits from NDN I \n FDR<0.05, ∆beta>0.05")+
+  theme(
+    plot.title = element_text(face="bold"),
+    legend.title = element_text(colour="white"),
+    panel.grid.major.y = element_line(colour = "grey"), 
+    panel.grid.major.x = element_line(colour = "white"),
+    panel.grid.minor.x = element_line(colour = "white"))
+
+
+```
+
+*∆beta plot*
+```{r}
+colnames(elodie.hits)
+elodie.betas <- elodie.hits[which(elodie.hits$Probe %in% rownames(chudley.elodie)),]
+rownames(elodie.betas) <- elodie.betas$Probe
+elodie.betas <- elodie.betas[,c(1,6)]
+elodie.betas$delta_beta_NDN_I <- elodie.betas$delta.correctedBeta
+elodie.betas$type <- "NDN I"
+length(which(abs(elodie.betas$delta_beta_NDN_I)>=0.05))
+
+chudley.elodie.betas <- chel.sv.betas[which(rownames(chel.sv.betas) %in% rownames(chudley.elodie)),]
+chudley.elodie.betas.simp <- data.frame(FASD = rowMeans(chudley.elodie.betas[,which(pData(chudley_clean)$Group =="FASD")]),
+                                        Control = rowMeans(chudley.elodie.betas[,which(pData(chudley_clean)$Group =="Control")]))
+length(which(abs(chudley.elodie.betas.simp$delta_beta_NDN_II) >0.05))
+chudley.elodie.betas.simp$delta_beta_NDN_II <- chudley.elodie.betas.simp$FASD - chudley.elodie.betas.simp$Control
+chudley.elodie.betas.simp <- chudley.elodie.betas.simp[match(rownames(elodie.betas),rownames(chudley.elodie.betas.simp)),]
+chudley.elodie.betas.simp$type <- "NDN II"
+chudley.elodie.betas.simp$Probe <- rownames(chudley.elodie.betas.simp)
+
+
+identical(rownames(elodie.betas), rownames(chudley.elodie.betas.simp))
+head(elodie.betas)
+cbind(chudley.elodie.betas.simp[,c(5,3)], elodie.betas[,3])
+
+delta_beta_plot <- data.frame(cpg = chudley.elodie.betas.simp[,5], NDN_I = elodie.betas[,3],NDN_II = chudley.elodie.betas.simp[,3])
+head(delta_beta_plot)
+
+ggplot(delta_beta_plot, aes(abs(NDN_I), abs(NDN_II)))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+summary(lm(delta_beta_plot$NDN_I ~ delta_beta_plot$NDN_II))  #p<2.2e-16
+cor(delta_beta_plot[,2:3])# r = 0.638
+plot.new()
+ggplot(delta_beta_plot, aes(NDN_I, NDN_II))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  theme_bw()+
+  ylab("KBHN cohort")+
+  xlab ("NDN cohort")+
+  xlim(-0.15,0.15)+
+  ylim(-0.15,0.15)+
+  ggtitle("Scatter plot of delta betas")+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=20, color="black"),
+        axis.text.x = element_text(size=20, color="black"),
+        plot.title = element_text(face="bold", size=30))+
+  geom_text(x =0.1, y=  -0.15, label = "r = 0.638", size = 5)
+
+### extra code - 4 CpGs show >5% change in both cohorts, but are not significant
+  geom_point(data=delta_beta_plot[which(abs(delta_beta_plot$NDN_I) >=0.05 &
+                        abs(delta_beta_plot$NDN_II)>=0.05),], aes(x = NDN_I, y=NDN_II), color = "red")+
+  geom_segment(aes(x=0.05, xend = 0.05, y=0.05, yend=0.15), color = "green",size=.5)+
+  geom_segment(aes(x=0.05, xend = 0.15, y=0.05, yend=0.05), color = "green",size=.5)+
+  geom_segment(aes(x=-0.05, xend = -0.05, y=-0.05, yend=-0.15), color = "green",size=.5)+
+  geom_segment(aes(x=-0.15, xend = -0.05, y=-0.05, yend=-0.05), color = "green",size=.5)
+  
+  
+chel.table.3[which(rownames(chel.table.3) %in% delta_beta_plot[which(abs(delta_beta_plot$NDN_II)>=0.05),1]),]
+
+
+summary(lm(delta_beta_plot$NDN_I ~ delta_beta_plot$NDN_II))
+
+#checking direction of change in NDN I vs NDN II
+chel.table.3.up <- chel.table.3[which(chel.table.3$logFC >0),]
+dim(chel.table.3.up) #320
+chel.table.3.down <- chel.table.3[which(chel.table.3$logFC <0),]
+dim(chel.table.3.down) #328
+
+chel.table.3.cor <-  chel.table.3[which(rownames(chel.table.3) %in% 
+                                      c(rownames(chel.table.3.up[(which(rownames(chel.table.3.up) %in% 
+                                                                         elodie.hits.up$Probe)),]),
+                                        rownames(chel.table.3.down[(which(rownames(chel.table.3.down) %in% 
+                                                                           elodie.hits.down$Probe)),])) ),]
+dim(chel.table.3.cor) #462 show same direction across cohorts
+plot(density(chel.table.3.cor$P.Value))
+
+
+```
+
+*Volcano plot*
+```{r}
+chel.sv.sig.volcano <- chel.table.3
+
+chudley.elodie.betas <- chel.sv.betas[which(rownames(chel.sv.betas) %in% rownames(chudley.elodie)),]
+
+chudley.elodie.betas.2 <- data.frame(Control = rowMeans(chudley.elodie.betas[,which(meta$Group =="Control")]), 
+                            FASD = rowMeans(chudley.elodie.betas[,which(meta$Group =="FASD")]))
+chudley.elodie.betas.2$delta_beta <- data.frame(delta_beta = chudley.elodie.betas.2[,2]-chudley.elodie.betas.2[,1])
+head(chudley.elodie.betas.2)
+identical(colnames(chudley.elodie.betas),rownames(meta))
+
+chel.sv.sig.volcano$delta_betas <- chudley.elodie.betas.2$delta_beta[match(rownames(chel.sv.sig.volcano),
+                                                                           rownames(chudley.elodie.betas.2)),]
+head(chel.sv.sig.volcano)
+chel.sv.sig.cor
+plot(-log(chel.sv.sig.volcano$P.Value) ~ chel.sv.sig.volcano$delta_betas)
+
+colnames(chel.sv.sig.volcano)
+replication.hits <- chel.sv.sig.volcano[,c("P.Value","adj.P.Val","delta_betas")]
+replication.hits <- cbind(replication.hits, magprice[which(rownames(magprice) %in% rownames(replication.hits)),])
+replication.hits <- replication.hits[,c("P.Value","adj.P.Val","delta_betas","Closest_TSS","Closest_TSS_1",
+                                        "Closest_TSS_gene_name","Closest_TSS_Transcript")]
+write.table(replication.hits, "~/Chudley_NDN/replication.hits.GO.txt", sep ="\t", quote=F)
+
+#VOLCANO PLOT
+volcano<-data.frame(Adjusted_Pvalue=chel.sv.sig.volcano$adj.P.Val, Delta_Beta=chel.sv.sig.volcano$delta_betas)
+
+#Thresholds 
+dB<-0.05 #delta beta cutoff
+Pv<-0.05 #Pvalue cutoff
+
+sta_delbeta <- chel.sv.sig.volcano$delta_betas[which(chel.sv.sig.volcano$adj.P.Val<=0.05)]
+sta_delbeta <- sta_delbeta[abs(chel.sv.sig.volcano$delta_betas)>=0.05]
+
+print(paste("Hypermethylated", length(sta_delbeta[which(sta_delbeta>=dB)]), sep=": "))
+print(paste("Hypomethylated", length(sta_delbeta[which(sta_delbeta<=(-dB))]) , sep=": "))
+
+## positive delta beta is hypomethylated (code for volcano should be right now, should colors change?)
+color3<-sapply(1:nrow(volcano), function(x) if(volcano$Adjusted_Pvalue[x]<=Pv){
+  if(abs(volcano$Delta_Beta[x])>dB){
+    if(volcano$Delta_Beta[x]>dB){"Increased Methylation\n(with Potential Biological Impact)"}else{"Decreased Methylation\n (with Potential Biological Impact)"}
+  }else{if(volcano$Delta_Beta[x]>0){"Increased Methylation"}else{"Decreased Methylation"}}}else{"Not Significantly Different"})
+
+volcano$Interesting_CpG<-color3
+
+
+# COLORS! define here so they are consistent between plots
+# so even if you don't have CpGs in a color catagory the pattern will be maintained
+myColors <- c(muted("red", l=80, c=30),"red",muted("blue", l=70, c=40),"blue", "grey")
+
+color_possibilities<-c("Decreased Methylation",
+                       "Decreased Methylation\n (with Potential Biological Impact)",
+                       "Increased Methylation",
+                       "Increased Methylation\n(with Potential Biological Impact)",
+                       "Not Significantly Different")
+
+names(myColors) <- color_possibilities
+fillscale <- scale_fill_manual(name = "CpG Change Between \n smoking and non-smoking",
+                               values = myColors, drop = FALSE)
+
+  
+#volcano
+ggplot(volcano, aes(Delta_Beta, -log10(Adjusted_Pvalue), color=Interesting_CpG))+
+  geom_point(shape=19, size=1.5)+
+  theme_bw()+
+  fillscale+
+  geom_vline(xintercept=c(-dB,dB), color="grey60")+
+  geom_hline(yintercept=-log10(Pv), color="grey60")+
+  ylab("Multiple Test Corrected P Value (-log10)")+
+  xlab("Delta Beta")+
+  xlim(-0.15, 0.15)+
+  theme(axis.text = element_text(size =14, color="black"),
+        axis.title = element_text(size =20),
+        legend.text = element_text(size =14),
+        legend.title = element_text(size =20))+ 
+  guides(color = guide_legend(override.aes = list(size = 4)))
+
+
+```
+
+*Plotting FAM59B*
+```{r}
+fam59b.annot <- magprice[grep("FAM59B",magprice$Closest_TSS_gene_name_price),]
+fam59b.annot <- data.frame(cpg = rownames(fam59b.annot), fam59b.annot)
+fam59b <- chel.sv.betas[which(rownames(chel.sv.betas) %in% rownames(fam59b.annot)),]
+fam59b <- data.frame(cpg = rownames(fam59b), fam59b)
+
+fam59b <- merge(fam59b, fam59b.annot[,1:2], by="cpg")
+fam59b <- fam59b[order(fam59b$MAPINF0.1_price),]
+
+fam59b.melt <- (melt(fam59b, id.vars = c("cpg", "MAPINF0.1_price")))
+colnames(fam59b.melt)[2:3] <- c("pos","sample")
+head(fam59b.melt)
+
+identical(rownames(meta), as.character(unique(fam59b.melt$sample)))
+fam59b.melt$group <- unlist(lapply(0:(nrow(meta)-1), function(x){
+  a <- meta$Group[which(rownames(meta) == as.character(fam59b.melt$sample[1+(42*x)]))]
+  rep(a, nrow(fam59b))  }))
+fam59b.melt$first_nations <- unlist(lapply(0:(nrow(meta)-1), function(x){
+  a <- meta$first.nations[which(rownames(meta) == as.character(fam59b.melt$sample[1+(42*x)]))]
+  rep(a, nrow(fam59b))  }))
+head(fam59b.melt)
+
+fam59b.melt.mean <- ddply(fam59b.melt, pos~group+cpg, summarise, mean(value))
+fam59b.melt.mean <- merge(fam59b.melt.mean, fam59b.annot[,1:2], by = "cpg", all.x = T)
+fam59b.melt.mean <- fam59b.melt.mean[order(fam59b.melt.mean$pos),]
+colnames(fam59b.melt.mean)[4] <- c("value")
+
+fam59b.labels <- data.frame(cpg =  fam59b.annot[,1], pos = fam59b.annot[,2])
+
+fam59b.sig.mean <- fam59b.melt.mean[which(fam59b.melt.mean$pos %in% unique(fam59b.melt$pos[which(fam59b.melt$cpg %in%
+                                                                                                   delta.beta$cpg)])),]
+max(fam59b.sig.mean$pos) - min(fam59b.sig.mean$pos)
+fam59b.cgi <- data.frame(pos = c(26407423,26408253))
+
+
+fam59b.betas.simp <- data.frame(Control = fam59b.melt.mean[which(fam59b.melt.mean$group =="Control"),c(1,4)], 
+                            FASD = fam59b.melt.mean[which(fam59b.melt.mean$group =="FASD"),c(4)])
+colnames(fam59b.betas.simp)[1:2] <- c("position","Control")
+fam59b.betas.simp$delta_betas <- (delta_beta = round(fam59b.betas.simp[,3]-fam59b.betas.simp[,2], 2))
+fam59b.betas.simp$map <- (fam59b.betas.simp$FASD - 0.1)
+
+
+ggplot(fam59b.melt.mean, aes(x=pos, y= value*100, colour = group))+
+  geom_point(size = 1.5, pch = 9)+
+  geom_point(data = fam59b.melt, aes(x=pos, y= value*100, colour = group), size =0.5)+
+  geom_line(data = fam59b.melt.mean[,], aes(x = pos, y = value*100, group = group), size =1.1)+
+  geom_point(data = fam59b.sig.mean, aes(x = pos, y = value*100, group =group), colour = "darkred", pch ="o", size =8)+
+  #geom_line(data = fam59b.sig.mean, aes(x = pos, y = 0), colour = "black", size = 2)+
+  geom_line(data = fam59b.cgi, aes(x = pos, y = -0.01), colour = "darkgreen", size = 2)+
+  scale_colour_manual(values = c("#6C6C6C","#434CFB"))+
+  xlim(26405700, 26411800)+
+  ggtitle("chr2: 26405700-26411800 \nFAM59B gene body")+
+  ylab("Beta value")+
+  xlab("Position on chromosome 2")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(colour="white"),
+    panel.grid.major.y = element_line(colour = "grey"), 
+    panel.grid.major.x = element_line(colour = "white"),
+    panel.grid.minor.x = element_line(colour = "white"),
+    axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+    axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+    axis.text.y = element_text(size=20, color="black"),
+    axis.text.x = element_text(size=20, color="black"),
+    plot.title = element_text(face="bold", size=30))
+
+annotate(geom = "text", label = fam59b.betas.simp$delta_betas, x = fam59b.betas.simp$position, y = fam59b.betas.simp$map, colour = "black", size =5)
+  
+mean(fam59b.betas.simp$delta_betas[which(fam59b.betas.simp$position >= min(fam59b.sig.mean$pos) & 
+        fam59b.betas.simp$position <= max(fam59b.sig.mean$pos))]) #-0.128
+
+```
+
+*Plotting HLA-DPA1*
+```{r}
+
+hla.dpa1.annot <- magprice[grep("HLA-DPA1",magprice$Closest_TSS_gene_name_price_price_price),]
+hla.dpa1.annot <- data.frame(cpg = rownames(hla.dpa1.annot), hla.dpa1.annot)
+hla.dpa1 <- chel.sv.betas[which(rownames(chel.sv.betas) %in% rownames(hla.dpa1.annot)),]
+hla.dpa1 <- data.frame(cpg = rownames(hla.dpa1), hla.dpa1)
+
+identical(rownames(meta), colnames((hla.dpa1))[2:49])
+hla.dpa1 <- merge(hla.dpa1, hla.dpa1.annot[,1:2], by="cpg")
+hla.dpa1 <- hla.dpa1[order(hla.dpa1$MAPINF0.1_price_price_price),]
+
+hla.dpa1.melt <- (melt(hla.dpa1, id.vars = c("cpg", "MAPINF0.1_price_price_price")))
+colnames(hla.dpa1.melt)[2:3] <- c("pos","sample")
+head(hla.dpa1.melt)
+
+identical(rownames(meta), as.character(unique(hla.dpa1.melt$sample)))
+hla.dpa1.melt$group <- unlist(lapply(0:(nrow(meta)-1), function(x){
+  a <- meta$Group[which(rownames(meta) == as.character(hla.dpa1.melt$sample[1+(42*x)]))]
+  rep(a, nrow(hla.dpa1))  }))
+hla.dpa1.melt$first_nations <- unlist(lapply(0:(nrow(meta)-1), function(x){
+  a <- meta$first.nations[which(rownames(meta) == as.character(hla.dpa1.melt$sample[1+(42*x)]))]
+  rep(a, nrow(hla.dpa1))  }))
+head(hla.dpa1.melt)
+
+hla.dpa1.melt.mean <- ddply(hla.dpa1.melt, cpg~group, summarise, mean(value))
+hla.dpa1.melt.mean <- merge(hla.dpa1.melt.mean, hla.dpa1.annot[,1:2], by = "cpg", all.x = T)
+colnames(hla.dpa1.melt.mean)[3:4] <- c("value", "pos")
+hla.dpa1.melt.mean <- hla.dpa1.melt.mean[order(hla.dpa1.melt.mean$pos),]
+
+
+hla.dpa1.sig.mean <- hla.dpa1.melt.mean[which(hla.dpa1.melt.mean$pos %in% unique(hla.dpa1.melt$pos[which(hla.dpa1.melt$cpg %in%
+                                                                                                   delta.beta$cpg)])),]
+
+hla.dpa1.betas.simp <- data.frame(Control = hla.dpa1.melt.mean[which(hla.dpa1.melt.mean$group =="Control"),c(1,3)], 
+                            FASD = hla.dpa1.melt.mean[which(hla.dpa1.melt.mean$group =="FASD"),c(3)])
+colnames(hla.dpa1.betas.simp)[1:2] <- c("position","Control")
+hla.dpa1.betas.simp$delta_betas <- (delta_beta = round(hla.dpa1.betas.simp[,3]-hla.dpa1.betas.simp[,2], 2))
+hla.dpa1.betas.simp$map <- (hla.dpa1.betas.simp$FASD - 0.1)
+
+
+ggplot(hla.dpa1.melt.mean, aes(x=pos, y= value, colour = group))+
+  geom_point(size = 1.5, pch = 9)+
+  geom_point(data = hla.dpa1.melt, aes(x=pos, y= value, colour = first_nations), size =0.5)+
+  geom_line(data = hla.dpa1.melt.mean[,], aes(x = pos, y = value, group = group), size =1.1)+
+  geom_point(data = hla.dpa1.sig.mean, aes(x = pos, y = value, group =group), colour = "darkred", pch ="o", size =8)+
+  #geom_line(data = hla.dpa1.sig.mean, aes(x = pos, y = 0), colour = "black", size = 2)+
+  scale_colour_manual(values = c("purple","red", "#6C6C6C","#434CFB"))+
+  xlim(33048500, 33049000)+
+  ggtitle("chr2: 26405700-26411800 \nhla.dpa1 gene body")+
+  ylab("Beta value")+
+  xlab("Position on chromosome 2")+
+  theme_bw()+
+  theme(
+    plot.title = element_text(face="bold"),
+    legend.title = element_text(colour="white"),
+    panel.grid.major.y = element_line(colour = "grey"), 
+    panel.grid.major.x = element_line(colour = "white"),
+    panel.grid.minor.x = element_line(colour = "white"))+
+  annotate(geom = "text", label = hla.dpa1.betas.simp$delta_betas, x = hla.dpa1.betas.simp$position, y = hla.dpa1.betas.simp$map, 
+              colour = "black", size =5)
+  
+
+grep("rs13404498", chudley_snps_filtered$SNP_Name)
+
+
+which(rownames(hla.dpa1.annot) %in% rownames(chudley.elodie))
+
+```
+
+*Permutations to determine how # of validated hits compare to random chance*
+```{r}
+rand.hits <- lapply(1:10000, function(x){
+        print(x)
+        set.seed(x)
+        Hit_number <- 648
+        rnd <- chudley.combat.2[sample(1:nrow(chudley.combat.2),Hit_number),]
+        fit <- lmFit(rnd, model.3)
+        fit.2 <- eBayes(fit)
+        top <- topTable(fit.2, coef=grep("FASD", colnames(chel.fit.3$coefficients)), adjust.method = "BH", p.value = 0.05, number="Inf")
+        length(rownames(top))
+  })
+
+rand.hits.sum <- do.call(rbind, rand.hits)
+hist(rand.hits.sum)
+summary(rand.hits.sum)
+
+head(chudley.combat.2)
+
+#randomize sample group (not SV)
+rand.hits.mod <- lapply(1:10000, function(x){
+        print(x)
+        set.seed(x)
+        rnd.mod <- model.3
+        rnd.mod[,2] <- model.3[sample(1:nrow(model.3)),2]
+        fit <- lmFit(chudley.elodie, rnd.mod)
+        fit.2 <- eBayes(fit)
+        top <- topTable(fit.2, coef=grep("FASD", colnames(chel.fit.3$coefficients)), 
+                        p.value=0.05, adjust.method = "BH",  number="Inf")
+        top.up <- top[which(top$logFC >0),] 
+        top.down <- top[which(top$logFC <0),] 
+        top.cor <- top[which(rownames(top) %in% c(rownames(top[(which(rownames(top.up) %in% elodie.hits.up$Probe)),], 
+                                                  rownames(top[(which(rownames(top.down) %in% elodie.hits.down$Probe)),]))) ),]
+        length(rownames(top.cor))
+  })
+
+rand.hits.mod.sum <- do.call(rbind, rand.hits.mod)
+summary(rand.hits.mod.sum) #0 above 161 == p>1e-5
+plot(density(rand.hits.mod.sum), xlim = c(0,200), main ="# of hits in random selection of sample group",
+     xlab="# of hits")
+abline(v=161, col = "red")
+
+#select 648 random cpgs
+rand.hits <- lapply(1:10000, function(x){
+        print(x)
+        set.seed(x)
+        rnd <- chudley.combat.2[sample(1:nrow(chudley.combat.2),648),]
+        fit <- lmFit(rnd, model.3)
+        fit.2 <- eBayes(fit)
+        top <- topTable(fit.2, coef=grep("FASD", colnames(chel.fit.3$coefficients)), p.value=0.05, adjust.method = "BH", number="Inf")
+        top.up <- top[which(top$logFC >0),] 
+        top.down <- top[which(top$logFC <0),]
+        top.cor <- top[which(rownames(top) %in% c(rownames(top[(which(rownames(top.up) %in% elodie.hits.up$Probe)),], 
+                                                  rownames(top[(which(rownames(top.down) %in% elodie.hits.down$Probe)),]))) ),]
+        length(rownames(top.cor))
+  })
+
+rand.hits.sum <- do.call(rbind, rand.hits)
+summary(rand.hits.sum) #0 above 161 == p>1e-5
+plot(density(rand.hits.sum), xlim = c(0,200), main ="# of hits in random selection of 648 CpGs",
+     xlab="# of hits")
+abline(v=161, col="red")
+
+
+```
+
+*PREDICTOR OF FASD - http://topepo.github.io/caret/model-training-and-tuning.html* - BEST !!!
+```{r}
+#preparing training data
+load("~/NDN_FASD_I/final2.RData")
+set.seed(17)
+training.ndn1 <- t(as.matrix(betas(final2[which(rownames(final2) %in% rownames(chudley.elodie)),])))
+ndn1.groups <- pData(final2)$Group
+training.ndn1.2 <- training.ndn1[-which(pData(final2)$SubGroup == "PAE"),]
+dim(training.ndn1.2)
+ndn1.groups.2 <- factor(ndn1.groups[-which(pData(final2)$SubGroup == "PAE")], levels = c("FASD","Control"))
+length(ndn1.groups.2)
+
+#preparing test data
+load("~/Chudley_NDN/chudley_preprocessed_norm.RData")
+dim(chudley_clean)
+test.ndn2 <- t(m2beta(as.matrix(chudley.combat.2[which(rownames(chudley.combat.2) %in% rownames(chudley.elodie)),])))
+dim(test.ndn2)
+
+#preparing the parameters for training the predictor
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), n.trees = (1:30)*50, 
+                        shrinkage = 0.1, n.minobsinnode = 20)
+fitControl.2 <- trainControl(method = "repeatedcv", number = 10, repeats = 10, classProbs = TRUE,
+                             summaryFunction = twoClassSummary, savePredictions = T)
+
+#building the predictor with samples from NON I - FASD only
+gbmFit.648.FASD <- train(y=factor(ndn1.groups.2, levels = c("FASD","Control")), 
+                         x = (training.ndn1.2), method = "gbm", trControl = fitControl.2, 
+                         verbose = FALSE, tuneGrid = gbmGrid, metric = "ROC")
+gbmFit.648.FASD$finalModel
+
+plot(gbmFit.648.FASD)
+plot(varImp(gbmFit.648.FASD))
+resampleHist(gbmFit.648.FASD)
+plotObsVsPred(gbmFit.648.FASD)
+
+whichTwoPct <- tolerance(gbmFit.648.FASD$results, metric = "ROC", tol = 2, maximize = TRUE)  
+gbmFit.648.FASD$results[whichTwoPct,1:10]
+gbmFit.648.FASD$bestTune
+which(gbmFit.648.FASD$results$n.trees == 550)
+gbmFit.648.FASD$results[31:33,1:7]
+
+#save(gbmFit.648.FASD, file ="~/Chudley_NDN/gbmFit.648.FASD.RData")
+
+#testing predictor in test dataset - KBHN (chudley)
+confusionMatrix(predict(gbmFit.648.FASD, newdata = (test.ndn2)), factor(pData(chudley_clean)$Group, 
+                                                                        levels = c("FASD","Control")))
+gbm3.votes <- predict(gbmFit.648.FASD, newdata = (test.ndn2), type = "prob")
+gbm3.pred <- gbm3.votes[,2]
+
+histogram(~gbm3.votes$Control|factor(pData(chudley_clean)$Group, levels = c("FASD","Control")), 
+          xlab="Probability of Poor Segmentation")
+
+
+#plotting 
+
+head(gbmFit.648.FASD)
+head(gbm.ROC.plot.2)
+
+gbm.ROC.plot.2 <- gbm.ROC.plot
+gbm.ROC.plot.2$Fold = "validation"
+
+gbmFit.648.FASD.2 <- gbmFit.648.FASD[,c(2,4,11)]
+gbmFit.648.FASD.2$FASD <- (1-gbmFit.648.FASD.2$FASD)
+colnames(gbmFit.648.FASD.2) <- c("response","predictor","Fold")
+
+gbm.ROC.plot.3 <- rbind(gbm.ROC.plot.2,gbmFit.648.FASD.2[,c(2,1,3)])
+
+ggplot(gbm.ROC.plot.3, aes(d = response, m = 1-predictor, color = Fold))+
+  geom_roc(data =gbm.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], n.cuts = 0, labels = F, lwd = 0.7)+
+  scale_color_manual(values = rep("lightgrey",10))+
+  geom_roc(data = gbm.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], aes(d = response, m= 1-predictor), 
+           color = "#545454", labels = F, n.cuts =0, lwd = 1.3)+
+  geom_roc(data = gbm.ROC.plot.3[grep("validation", gbm.ROC.plot.3$Fold),], aes(d = response, m= predictor), 
+           color = "blue", labels = F, n.cuts =0, lwd = 1.3)+
+  #geom_rocci(data = gbm.ROC.plot.3[grep("validation", gbm.ROC.plot.3$Fold),], labels =F, size=0, sig.level = 0.05)+
+  style_roc(xlab = "1 - Specificity")+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=18, color="black"),
+        axis.text.x = element_text(size=18, color="black"),
+        plot.title = element_text(face="bold", size=30),
+        legend.position="none")
+plot.new()
+legend("left",lty = 1, lwd = 4, col = c("lightgrey","#545454","blue"), box.col = "white", cex = 2,
+       legend = c("Training set cross-validations","Training set average","Test set"))
+
+
+
+```
+
+*161 probes*
+```{r}
+validated.hits <- read.csv("~/Chudley_NDN/validated.hits.annotated.csv", row.names = 1)
+
+set.seed(17)
+gbmFit.161.all <- train(y=factor(ndn1.groups, levels = c("FASD","Control")),
+                 x = (training.ndn1[,which(colnames(training.ndn1) %in% rownames(validated.hits))]), 
+                 method = "gbm", trControl = fitControl.2, 
+                 verbose = FALSE, tuneGrid = gbmGrid, metric = "ROC")
+gbmFit.161.all$finalModel
+set.seed(17)
+gbmFit.161.FASD <- train(y=factor(ndn1.groups.2, levels = c("FASD","Control")),
+                 x = (training.ndn1.2[,which(colnames(training.ndn1.2) %in% rownames(validated.hits))]), 
+                 method = "gbm", trControl = fitControl.2, 
+                 verbose = FALSE, tuneGrid = gbmGrid, metric = "ROC")
+gbmFit.161.FASD$finalModel
+
+plot(gbmFit4)
+plot(varImp(gbmFit4))
+
+whichTwoPct.4 <- tolerance(gbmFit4$results, metric = "ROC", tol = 2, maximize = TRUE)  
+gbmFit4$results[whichTwoPct.4,1:10]
+gbmFit4$bestTune
+
+gbmFit4.top.pred <- gbmFit4$pred[(which(gbmFit4$pred$n.trees == gbmFit4$bestTune$n.trees & 
+                                          gbmFit4$pred$interaction.depth == gbmFit4$bestTune$interaction.depth)),]
+gbmFit4.top.pred.roc <- roc(predictor = gbmFit4.top.pred$FASD, response = gbmFit4.top.pred$obs)
+gbmFit4.top.pred.roc
+
+gbmFit4.top.pred$Fold <- strsplit2(gbmFit4.top.pred$Resample, "\\.")[,1]
+gbmFit4.top.pred$Rep <- strsplit2(gbmFit4.top.pred$Resample, "\\.")[,2]
+
+
+head(gbmFit4.top.pred)
+ggplot(gbmFit4.top.pred,aes(d = obs, m= 1-FASD, colour = Fold))+
+  geom_roc(n.cuts = 0, labels = F)+
+  scale_color_manual(values = rep("grey",10))+
+  geom_roc(data = gbmFit4.top.pred, aes(d = obs, m= 1-FASD), color = "black", labels = F, n.cuts =0)+
+  ggtitle("ROC of training data")+
+  #annotate("text", x = .75, y = .25, 
+  #        label = paste("AUC =", round(gbmFit4.top.pred.roc$auc, 3))) +
+  style_roc(xlab = "1 - Specificity")+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=18, color="black"),
+        axis.text.x = element_text(size=18, color="black"),
+        plot.title = element_text(face="bold", size=30),
+        legend.position="none")
+  
+ci(gbmFit4.top.pred.roc)
+
+set.seed(17)
+confusionMatrix(predict(gbmFit4, newdata = training.ndn1.2[,which(colnames(training.ndn1.2) %in%
+                                                                     rownames(validated.hits))]), 
+                factor(ndn1.groups.2, levels = c("FASD","Control")))
+
+confusionMatrix(predict(gbmFit4, newdata = (test.ndn2[,which(colnames(test.ndn2) %in% rownames(validated.hits))])),
+                factor(pData(chudley_clean)$Group, levels = c("FASD","Control")))
+
+
+gbm4.votes <- predict(gbmFit4, newdata = (test.ndn2[,which(colnames(test.ndn2) %in% rownames(validated.hits))]), 
+                      type = "prob")
+gbm4.pred <- gbm4.votes[,2]
+
+histogram(~gbm4.votes$Control|factor(pData(chudley_clean)$Group, levels = c("FASD","Control")), 
+          xlab="Probability of Poor Segmentation")
+gbm4.ROC <- roc(predictor=gbm4.votes$FASD,
+            response=as.factor(pData(chudley_clean)$Group))
+str(gbm4.ROC)
+
+plot(gbm4.ROC, main = "ROC curve of NDN II\nArea under the curve: 0.9427")
+auc(gbm4.ROC)
+str(gbm4.ROC)
+resampleHist(gbmFit4)
+
+gbm4.ROC.plot <- data.frame(predictor=gbm4.votes$FASD,
+            response=as.factor(pData(chudley_clean)$Group))
+ggplot(gbm4.ROC.plot, aes(d = response, m = predictor))+
+  geom_roc(n.cuts = 0, labels = F)+
+  geom_rocci(labels =F, size=0, sig.level = 0.05)+
+  ggtitle("ROC of test data (NDN II)")+
+  #annotate("text", x = .75, y = .25, 
+  #         label = paste("AUC =", round(gbm4.ROC$auc, 3))) +
+  style_roc(xlab = "1 - Specificity")+
+    theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=18, color="black"),
+        axis.text.x = element_text(size=18, color="black"),
+        plot.title = element_text(face="bold", size=30))
+
+roc.test(gbmFit4.top.pred.roc, gbm4.ROC)
+str(gbmFit4.top.pred.roc)
+```
+
+*Publication ROC curves*
+```{r}
+
+head(gbmFit3.top.pred.2)
+head(gbm.ROC.plot.2)
+
+gbm.ROC.plot.2 <- gbm.ROC.plot
+gbm.ROC.plot.2$Fold = "validation"
+
+gbmFit3.top.pred.2 <- gbmFit3.top.pred[,c(2,4,11)]
+gbmFit3.top.pred.2$FASD <- (1-gbmFit3.top.pred.2$FASD)
+colnames(gbmFit3.top.pred.2) <- c("response","predictor","Fold")
+
+gbm.ROC.plot.3 <- rbind(gbm.ROC.plot.2,gbmFit3.top.pred.2[,c(2,1,3)])
+
+ggplot(gbm.ROC.plot.3, aes(d = response, m = 1-predictor, color = Fold))+
+  geom_roc(data =gbm.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], n.cuts = 0, labels = F, lwd = 0.7)+
+  scale_color_manual(values = rep("lightgrey",10))+
+  geom_roc(data = gbm.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], aes(d = response, m= 1-predictor), 
+           color = "#545454", labels = F, n.cuts =0, lwd = 1.3)+
+  geom_roc(data = gbm.ROC.plot.3[grep("validation", gbm.ROC.plot.3$Fold),], aes(d = response, m= predictor), 
+           color = "blue", labels = F, n.cuts =0, lwd = 1.3)+
+  #geom_rocci(data = gbm.ROC.plot.3[grep("validation", gbm.ROC.plot.3$Fold),], labels =F, size=0, sig.level = 0.05)+
+  style_roc(xlab = "1 - Specificity")+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=18, color="black"),
+        axis.text.x = element_text(size=18, color="black"),
+        plot.title = element_text(face="bold", size=30),
+        legend.position="none")
+plot.new()
+legend("left",lty = 1, lwd = 4, col = c("lightgrey","#545454","blue"), box.col = "white", cex = 2,
+       legend = c("Training set cross-validations","Training set average","Test set"))
+
+
+#161 probes
+
+head(gbmFit4.top.pred)
+head(gbm4.ROC.plot.2)
+
+gbm4.ROC.plot.2 <- gbm4.ROC.plot
+gbm4.ROC.plot.2$Fold = "validation"
+
+gbmFit4.top.pred.2 <- gbmFit4.top.pred[,c(2,4,11)]
+gbmFit4.top.pred.2$FASD <- (1-gbmFit4.top.pred.2$FASD)
+colnames(gbmFit4.top.pred.2) <- c("response","predictor","Fold")
+
+gbm4.ROC.plot.3 <- rbind(gbm4.ROC.plot.2, gbmFit4.top.pred.2[,c(2,1,3)])
+
+ggplot(gbm4.ROC.plot.3, aes(d = response, m = 1-predictor, color = Fold))+
+  geom_roc(data =gbm4.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], n.cuts = 0, labels = F, lwd = .7)+
+  scale_color_manual(values = rep("lightgrey",10))+
+  geom_roc(data = gbm4.ROC.plot.3[grep("Fold", gbm.ROC.plot.3$Fold),], aes(d = response, m= 1-predictor), 
+           color = "#545454", labels = F, n.cuts =0, lwd =1.3)+
+  geom_roc(data = gbm4.ROC.plot.3[grep("validation", gbm.ROC.plot.3$Fold),], aes(d = response, m= predictor), 
+           color = "blue", labels = F, n.cuts =0, lwd = 1.3)+
+  style_roc(xlab = "1 - Specificity")+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=25, face="bold", vjust=1.2),
+        axis.text.y = element_text(size=18, color="black"),
+        axis.text.x = element_text(size=18, color="black"),
+        plot.title = element_text(face="bold", size=30),
+        legend.position="none")
+
+
+
+```
+
+*Testing predictor on Greally dataset*
+```{r}
+gset <- getGEO("GSE50759", GSEMatrix =TRUE, getGPL=FALSE)
+if (length(gset) > 1) idx <- grep("GPL13534", attr(gset, "names")) else idx <- 1
+gset <- gset[[idx]]
+dim(gset)
+head(pData(gset)[,10:14])
+
+plot.new()
+density(gset, addLegend=F)
+gset.2 <- gset[,-which(pData(gset)$source_name_ch1 %in% c("F136_P369", "F83_P209", "F134_P361"))]
+gset.2 <- gset.2[substring(featureNames(gset),1,2) != "rs", ]
+dim(gset.2)
+
+fData(gset.2) <- fData(chudley_clean)[which(featureNames(chudley_clean) %in% featureNames(gset.2)),]
+gset.2 <- gset.2[!fData(gset.2)$CHR %in% c("X","Y"),]
+dim(gset.2)
+head(pData(gset))
+gset.pred <- gset[which(featureNames(gset) %in% rownames(chudley.elodie)),]
+gset.pred.betas <- m2beta(exprs(gset.pred))
+dim(gset.pred.betas)
+set.seed(17)
+asd.predict <- predict(gbmFit4, t(gset.pred.betas))
+length(which(asd.predict =="FASD")) # 12/96
+
+confusionMatrix(asd.predict, factor(rep("Control", 96), levels = c("FASD","Control")))
+
+asd.predict <- data.frame(predict = asd.predict, group = strsplit2(pData(gset)$characteristics_ch1,":")[,2])
+
+length(which(asd.predict$predict =="FASD" & asd.predict$group ==" ASD")) #9/48
+(pData(gset))[which(asd.predict$predict =="FASD" & asd.predict$group ==" ASD"),9:15]
+
+length(which(asd.predict$predict =="Control" & asd.predict$group ==" ASD")) #41/48
+length(which(asd.predict$predict =="FASD" & asd.predict$group ==" TD")) #8/48
+(pData(gset))[which(asd.predict$predict =="FASD" & asd.predict$group ==" TD"),9:15]
+
+
+length(which(asd.predict$predict =="Control" & asd.predict$group ==" TD")) #43/48
+
+```
+
+*Testing on other Kobor datasets*
+```{r}
+#Testing on Drakenstein - blood#
+load("~/2016.01.20drak_final_noreps.Rdata")
+dim(drak.final)
+drak.final.betas.pred <- betas(drak.final[which(featureNames(drak.final) %in% rownames(validated.hits)),])
+dim(drak.final.betas.pred) #128 samples, 159 probes
+drak.predict <- predict(gbmFit4, t(drak.final.betas.pred))
+length(drak.predict == "FASD") #128 of 128 -.- 
+
+
+###TESTING ON GECKO (8-10 years old, M/F, typically developing) FROM SARAH GOODMAN ###
+load("~/GECKO_buccal_betas_Alex.RData")
+load("~/GECKO_buccal_betas_unnorm_Alex.RData")
+dim(GECKO_buccal_betas_unnorm)
+gecko.predict.betas <- GECKO_buccal_betas[which(rownames(GECKO_buccal_betas) %in% elodie.hits$Probe),] #146 of 161
+dim(gecko.predict.betas) #146 of 161
+set.seed(17)
+gecko.predicted <- predict(gbmFit3, t(gecko.predict.betas))
+length(which(gecko.predicted =="FASD")) ##DOESN'T WORK!! 
+#is it because it's only 146 probes? 
+test.146.cpg <- do.call(rbind, lapply(1:1000, function(x) {
+  print(x)
+  set.seed(x)
+  cpg.list <- sample(rownames(chel.sv.sig.cor), 146)
+  pred.cpg <- gset[which(featureNames(gset) %in% cpg.list),]
+  pred.cpg.betas <- m2beta(exprs(pred.cpg))
+  asd.predict <- predict(gbmFit3, t(pred.cpg.betas))
+  data.frame(seed = x, FASD_num = length(which(asd.predict =="FASD")))
+}))
+
+plot(density(test.146.cpg$FASD_num))
+#yuppppp...... guess we need all 161 probes (or the 151 non-zero influence)
+
+
+#C3ARE
+load("~/CARE_betas.RData")
+dim(CARE_betas) #96 samples
+care.predict.betas <- CARE_betas[which(rownames(CARE_betas) %in% elodie.hits$Probe),]
+dim(care.predict.betas) #157 of 161
+set.seed(17)
+care.predicted <- predict(gbmFit3, t(care.predict.betas))
+length(which(care.predicted =="FASD")) #2 of 96 
+confusionMatrix(care.predicted, factor(rep("Control",96), levels = c("FASD","Control")))
+
+#MAVAN III
+load("~/MAVANIII_betas.RData")
+dim(MAVANIII_betas) #240 samples
+m3.predict.betas <- MAVANIII_betas[which(rownames(MAVANIII_betas) %in% elodie.hits$Probe),]
+dim(m3.predict.betas) #161 of 161
+set.seed(17)
+m3.predicted <- predict(gbmFit3, t(m3.predict.betas))
+length(which(m3.predicted =="FASD")) #1 of 240
+confusionMatrix(m3.predicted, factor(rep("Control",240), levels = c("FASD","Control")))
+
+#WISCONSIN 18
+load("~/WSFW_450k_betas_processed.RData")
+dim(WSFW_450k_betas_processed) #189 samples
+wisc.predict.betas <- WSFW_450k_betas_processed[which(rownames(WSFW_450k_betas_processed) %in% elodie.hits$Probe),]
+dim(wisc.predict.betas) #161 of 161
+set.seed(17)
+wisc.predicted <- predict(gbmFit3, t(wisc.predict.betas))
+length(which(wisc.predicted =="FASD")) #37/189 (19.6% false positive)
+confusionMatrix(wisc.predicted, factor(rep("Control",189), levels = c("Control","FASD")))
+
+#ALL BUCCAL
+load("~/buccal_betas_preprocessed_BMIQ_2016Sept7.RData")
+dim(buccal_betas_preprocessed_BMIQ_2016Sept7) #1191 samples
+all.buc <- buccal_betas_preprocessed_BMIQ_2016Sept7[,-(which(colnames(buccal_betas_preprocessed_BMIQ_2016Sept7) 
+                                                             %in% c(colnames(final2), colnames(chudley_clean))))]
+head(all.buc) #944 samples
+all.buc.predict.betas <- all.buc[which(rownames(all.buc) %in% elodie.hits$Probe),]
+head(all.buc.predict.betas) #157 of 161
+set.seed(17)
+all.buc.predicted <- predict(gbmFit3, t(all.buc.predict.betas))
+length(which(all.buc.predicted =="FASD")) #5/1191
+confusionMatrix(all.buc.predicted, factor(rep("Control",944), levels = c("Control","FASD")))
+
+#PAWS
+load("~/PAWS_betas_metas_normalized_combatted_SES_genoPCs_cell_comp.RData")
+PAWS_Beta.pred <- PAWS_Beta[which(rownames(PAWS_Beta) %in% colnames(training.ndn1)),]
+dim(PAWS_Beta.pred) #161/161 - 177 samples
+paws.predicted <- predict(gbmFit3, t(PAWS_Beta.pred))
+length(which(paws.predicted =="FASD")) #20/177
+confusionMatrix(paws.predicted, factor(rep("Control",177), levels = c("FASD","Control")))
+
+summary(factor(PAWS_meta$ETHNICITY[which(paws.predicted =="FASD")]))
+summary((PAWS_meta[which(paws.predicted =="FASD"),]))
+summary(factor(PAWS_meta$ETHNICITY))
+
+plot(density(na.omit(PAWS_meta$Sarah_comp_SES)))
+lines(density(PAWS_meta$Sarah_comp_SES[which(paws.predicted =="FASD")]))
+
+plot(density(PAWS_meta$PredictedCD34),main = "Density of predicted CD34 proportions", xlab = "CD34 proportion")
+lines(density(PAWS_meta$PredictedCD34[which(paws.predicted =="FASD")]), col = "red")
+plot(density(PAWS_meta$PredictedBuccal),main = "Density of predicted buccal proportions", xlab = "Buccal proportion")
+lines(density(PAWS_meta$PredictedBuccal[which(paws.predicted =="FASD")]), col = "red")
+
+paws.predicted.2 <- predict(gbmFit3, t(PAWS_Beta.pred), type = "prob")
+densityplot(~paws.predicted.2$Control|factor(rep("Control",177), levels = c("FASD","Control")), 
+          xlab="Probability of Poor Segmentation")
+
+```
+
+*Pyrosequencing data - CACNA1A cg24800175*
+```{r}
+cacna1a.pyro <- read.csv("~/Chudley_NDN/CACNA1A_full.csv") #1st CpG is cg24800175
+
+
+cacna1a.450k <- data.frame(array.beta = chel.sv.betas.sig.ord[which(rownames(chel.sv.betas.sig.ord) == "cg24800175"),]*100,
+                            X450K_ID = colnames(chel.sv.betas.sig.ord))
+
+
+cacna1a.450k.norm <- data.frame(array.beta = m2beta(fitted(chel.fit.3)[which(rownames(fitted(chel.fit.3)) == "cg24800175"),])*100,
+                            X450K_ID = colnames(fitted(chel.fit.3))) 
+  
+length(which(cacna1a.pyro$X450K_ID %in% rownames(cacna1a.450k)))
+cacna1a.all <- cacna1a.pyro[which(cacna1a.pyro$X450K_ID %in% rownames(cacna1a.450k)),c(2,3,4)]
+cacna1a.all <- merge(cacna1a.all, cacna1a.450k, by = "X450K_ID")
+dim(cacna1a.all)
+colnames(cacna1a.all) <- c("Sample", "Group", "Pyro","Array")
+cacna1a.all
+
+summary(lm(cacna1a.all$Pyro ~ cacna1a.all$Group)) # 0.04 
+cor(cacna1a.all[,3:4]) # r = 0.8259
+summary(lm(cacna1a.all$Array ~ cacna1a.all$Pyro)) #r^2 = 0.6822
+
+plot(cacna1a.all$Array ~ cacna1a.all$Pyro, pch =20, ylab = "450K Array", xlab = "Pyrosequencing", cex = 1.5,
+     main = "Scatter plot of beta values for\n 450K array VS pyrosequencing", col = c(rep("#434CFB", 24),rep("#6C6C6C",22)))
+abline(lm(cacna1a.all$Array ~ cacna1a.all$Pyro))
+text(x = 70, y = 18, labels=c("r = 0.826"))
+legend(x = 3, y = 65, col = c("#6C6C6C", "#434CFB"), pch = 20, cex =1.3, c("Control","FASD"), box.col = "white")
+
+
+bland.altman.plot(cacna1a.all$Pyro, cacna1a.all$Array, main="", xlab="Means", ylab="Differences", pch =20, 
+                  cex =1.5, col = c(rep("#434CFB", 24),rep("#6C6C6C",22)))
+cacna1a.all$Pyro - cacna1a.all$Array
+
+?bland.altman.plot
+pyro.fasd <- summary(cacna1a.all.melt$value[which(cacna1a.all.melt$variable == "Pyro" & cacna1a.all.melt$Group == "FASD")])
+pyro.ctl <- summary(cacna1a.all.melt$value[which(cacna1a.all.melt$variable == "Pyro" & cacna1a.all.melt$Group == "Control")])
+array.fasd <- summary(cacna1a.all.melt$value[which(cacna1a.all.melt$variable == "Array"& cacna1a.all.melt$Group == "FASD")])
+array.ctl <- summary(cacna1a.all.melt$value[which(cacna1a.all.melt$variable == "Array"& cacna1a.all.melt$Group == "Control")])
+
+c(pyro.ctl[2],pyro.fasd[2], array.ctl[2], array.fasd[2])
+cacna1a.all.melt <- melt(cacna1a.all)
+ggplot(cacna1a.all.melt, aes(Group,value, colour = Group))+
+  stat_summary(fun.data=MinMeanSEMMax, geom="boxplot", aes(width = 0.7)) + 
+  geom_jitter(width = 0.15)+
+  #geom_boxplot(width = 0.7)+
+  facet_wrap(~variable)+
+  scale_colour_manual(values = c("#6C6C6C","#434CFB"))+
+  theme_bw()+
+  ylab("Percent methylation")+
+  ylim(0,100)+
+  theme(axis.title.y = element_text(size=25, face="bold", vjust=1.2),
+        axis.title.x = element_text(size=0, face="bold", vjust=1.2),
+        strip.text = element_text(size = 20, face = "bold"),
+        axis.text.y = element_text(size=20, color="black"),
+        axis.text.x = element_text(size=20, color="black"),
+        plot.title = element_text(face="bold", size=50))
+
+MinMeanSEMMax <- function(x) {
+  v <- c(min(x), quantile(x,probs = 0.25), mean(x), quantile(x,probs = 0.75), max(x))
+  names(v) <- c("ymin", "lower", "middle", "upper", "ymax")
+  v
+}
+
+quantile(pyro.ctl,probs = 0.25)
+                  
+```
+
