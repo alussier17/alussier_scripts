@@ -13,7 +13,7 @@
   
   • Source: https://www.futuremedicine.com/doi/10.2217/epi-2016-0163
 ### Genetics and epigenetics of development. The neurobiology of brain and behavioral development, 2017.
-  • Citation: Lussier AA*, Islam SA*, Kobor MS. Genetics and epigenetics of development. In Gibbs R. & Kolb B. (Eds.). The neurobiology of brain and behavioral development. Elsevier Inc. 2017. 
+  • Citation: Lussier AA, Islam SA, Kobor MS. Genetics and epigenetics of development. In Gibbs R. & Kolb B. (Eds.). The neurobiology of brain and behavioral development. Elsevier Inc. 2017. 
 ### Epigenetic analysis of human postmortem brain tissue. Handbook of Clinical Neurology, 2018
   • Citation: Islam SA, Lussier AA, Kobor MS. Epigenetic analysis of human postmortem brain tissue. Handb Clin Neurol. 2018;150:237-261. 
   
