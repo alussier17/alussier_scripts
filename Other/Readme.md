@@ -1,9 +1,9 @@
 # Additional manuscripts and scripts
 
 ## a. Manuscripts
-  • La-related Protein 1 (LARP1) Represses Terminal Oligopyrimidine (TOP) mRNA Translation Downstream of mTOR Complex 1 (mTORC1)
- 
   • Molecular pathways underpinning ethanol-induced neurodegeneration. Frontiers in Genetics, 2014.
+  
+  • La-related Protein 1 (LARP1) Represses Terminal Oligopyrimidine (TOP) mRNA Translation Downstream of mTOR Complex 1 (mTORC1). Journal of Biological Chemistry, 2015.
   
   • Epigenetics studies of fetal alcohol spectrum disorder: where are we now? Epigenomics, 2016.
   
