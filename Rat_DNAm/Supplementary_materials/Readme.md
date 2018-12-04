@@ -1,5 +1,5 @@
 # Supplementary materials for the manuscript
 
-  • Supplementary methods and figures
+  • Supplementary materials (methods and figures)
   
   • Supplementary tables
