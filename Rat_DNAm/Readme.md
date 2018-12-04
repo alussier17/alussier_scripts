@@ -1,4 +1,4 @@
-# Information on the Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues
+# Information on Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues
 
 ## a. Manuscript
   • Citation: Lussier AA, Bodnar TS, Mingay M, Morin AM, Hirst M, Kobor MS, Weinberg J. Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues. Front Gen. 2018.
