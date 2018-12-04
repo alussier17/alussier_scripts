@@ -9,6 +9,8 @@
 
 • Analysis - Typical development of the hypothalamus
 
-• Annotation
+• annotation.R
+  • Custom annotations the developmental and tissue-concordant datasets (P22). 
+  • Genomic features, DNA sequences, and CG content.
 
 • Other
