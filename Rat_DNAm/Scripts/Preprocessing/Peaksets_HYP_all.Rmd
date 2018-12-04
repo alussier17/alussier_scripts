@@ -1,0 +1,217 @@
+---
+title: "Peaksets_hyp_all"
+output: html_document
+---
+
+*PEAKSETS OF HYPOTHALAMUS SAMPLES*
+```{r}
+#P0#
+library(DiffBind)
+all.peakset <- dba.peakset(peaks="/home/alussier/newdata/PX0182/macs/ATCACG_peaks.xls", sampID="C1", 
+                             tissue="hypo", treatment="Control", replicate=1, condition = "P0",
+                             peak.caller="macs",peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ATCACG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0184/macs/GATCAG_peaks.xls", sampID="C2", 
+                             tissue="hypo", treatment="Control", replicate=2, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GATCAG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0182/macs/AACCCC_peaks.xls", sampID="C3", 
+                             tissue="hypo", treatment="Control", replicate=3, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_AACCCC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0183/macs/ACCCAG_peaks.xls", sampID="C4", 
+                             tissue="hypo", treatment="Control", replicate=4, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_ACCCAG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0182/macs/AGCGCT_peaks.xls", sampID="E1", 
+                             tissue="hypo", treatment="PAE", replicate=1, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_AGCGCT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0183/macs/CAAAAG_peaks.xls", sampID="E2", 
+                             tissue="hypo", treatment="PAE", replicate=2, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CAAAAG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0183/macs/CCAACA_peaks.xls", sampID="E3", 
+                             tissue="hypo", treatment="PAE", replicate=3, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CCAACA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0184/macs/CTAGCT_peaks.xls", sampID="E4", 
+                             tissue="hypo", treatment="PAE", replicate=4, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_CTAGCT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0182/macs/GATGCT_peaks.xls", sampID="PF1", 
+                             tissue="hypo", treatment="Pairfed", replicate=1, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_GATGCT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0184/macs/TAATCG_peaks.xls", sampID="PF2", 
+                             tissue="hypo", treatment="Pairfed", replicate=2, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_TAATCG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0183/macs/TGAATG_peaks.xls", sampID="PF3", 
+                             tissue="hypo", treatment="Pairfed", replicate=3, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TGAATG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks="/home/alussier/newdata/PX0184/macs/AGTTCC_peaks.xls", sampID="PF4", 
+                             tissue="hypo", treatment="Pairfed", replicate=4, condition = "P0",
+                             peak.caller="macs",peak.format="macs",
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AGTTCC.filtered.merged.bam")
+  
+#P8#
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CGATGT_peaks.xls", sampID="C5", 
+                             tissue="hypo", treatment="Control", replicate=1, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CGATGT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TAGCTT_peaks.xls", sampID="C6", 
+                             tissue="hypo", treatment="Control", replicate=2, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TAGCTT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/AACTTG_peaks.xls", sampID="C7", 
+                             tissue="hypo", treatment="Control", replicate=3, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AACTTG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/ACCGGC_peaks.xls", sampID="C8", 
+                             tissue="hypo", treatment="Control", replicate=4, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_ACCGGC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/AGGCCG_peaks.xls", sampID="E5", 
+                             tissue="hypo", treatment="PAE", replicate=1, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_AGGCCG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/CAACTA_peaks.xls", sampID="E6", 
+                             tissue="hypo", treatment="PAE", replicate=2, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CAACTA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/CCACGC_peaks.xls", sampID="E7", 
+                             tissue="hypo", treatment="PAE", replicate=3, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_CCACGC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CTATAC_peaks.xls", sampID="E8", 
+                             tissue="hypo", treatment="PAE", replicate=4, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CTATAC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/GCAAGG_peaks.xls", sampID="PF5", 
+                             tissue="hypo", treatment="Pairfed", replicate=1, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_GCAAGG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TACAGC_peaks.xls", sampID="PF6", 
+                             tissue="hypo", treatment="Pairfed", replicate=2, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TACAGC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/TGCCAT_peaks.xls", sampID="PF7", 
+                             tissue="hypo", treatment="Pairfed", replicate=3, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_TGCCAT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks ="/home/alussier/newdata/PX0183/macs/ATGTCA_peaks.xls", sampID="PF8", 
+                             tissue="hypo", treatment="Pairfed", replicate=4, condition = "P8",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_ATGTCA.filtered.merged.bam")
+  
+  
+#P15#
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TTAGGC_peaks.xls", sampID="C9", 
+                             tissue="hypo", treatment="Control", replicate=1, condition="P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TTAGGC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/GGCTAC_peaks.xls", sampID="C10", 
+                             tissue="hypo", treatment="Control", replicate=2, condition="P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_GGCTAC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/AAGACT_peaks.xls", sampID="C11", 
+                             tissue="hypo", treatment="Control", replicate=3, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_AAGACT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/ACGATA_peaks.xls", sampID="C12", 
+                             tissue="hypo", treatment="Control", replicate=4, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_ACGATA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/ATAATT_peaks.xls", sampID="E9", 
+                             tissue="hypo", treatment="PAE", replicate=1, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_ATAATT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/CACCGG_peaks.xls", sampID="E10", 
+                             tissue="hypo", treatment="PAE", replicate=2, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CACCGG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CCCATG_peaks.xls", sampID="E11", 
+                             tissue="hypo", treatment="PAE", replicate=3, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CCCATG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/CTCAGA_peaks.xls", sampID="E12", 
+                             tissue="hypo", treatment="PAE", replicate=4, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_CTCAGA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/GCACTT_peaks.xls", sampID="PF9", 
+                             tissue="hypo", treatment="Pairfed", replicate=1, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GCACTT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/TATAAT_peaks.xls", sampID="PF10", 
+                             tissue="hypo", treatment="Pairfed", replicate=2, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_TATAAT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TGCTGG_peaks.xls", sampID="PF11", 
+                             tissue="hypo", treatment="Pairfed", replicate=3, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TGCTGG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks ="/home/alussier/newdata/PX0182/macs/CCGTCC_peaks.xls", sampID="PF12", 
+                             tissue="hypo", treatment="Pairfed", replicate=4, condition = "P15",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CCGTCC.filtered.merged.bam")
+  
+#P22 Hyp#
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TGACCA_peaks.xls", sampID="C13", 
+                             tissue="hypo", treatment="Control", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TGACCA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CTTGTA_peaks.xls", sampID="C14", 
+                             tissue="hypo", treatment="Control", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CTTGTA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, =peaks = "/home/alussier/newdata/PX0184/macs/AAGCGA_peaks.xls", sampID="C15", 
+                             tissue="hypo", treatment="Control", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AAGCGA.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/ACTCTC_peaks.xls", sampID="C16", 
+                             tissue="hypo", treatment="Control", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ACTCTC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/ATACGG_peaks.xls", sampID="E13", 
+                             tissue="hypo", treatment="PAE", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ATACGG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/CACGAT_peaks.xls", sampID="E14", 
+                             tissue="hypo", treatment="PAE", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CACGAT.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/GAGTGG_peaks.xls", sampID="E15", 
+                             tissue="hypo", treatment="PAE", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_GAGTGG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/CTGCTG_peaks.xls", sampID="E16", 
+                             tissue="hypo", treatment="PAE", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_CTGCTG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0184/macs/GCCGCG_peaks.xls", sampID="PF13", 
+                             tissue="hypo", treatment="Pairfed", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GCCGCG.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TCATTC_peaks.xls", sampID="PF14", 
+                             tissue="hypo", treatment="Pairfed", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TCATTC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks = "/home/alussier/newdata/PX0182/macs/TGGCGC_peaks.xls", sampID="PF15", 
+                             tissue="hypo", treatment="Pairfed", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_TGGCGC.filtered.merged.bam")
+all.peakset <- dba.peakset(all.peakset, peaks ="/home/alussier/newdata/PX0184/macs/GTAGAG_peaks.xls", sampID="PF16", 
+                             tissue="hypo", treatment="Pairfed", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", 
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GTAGAG.filtered.merged.bam")
+
+save(all.peakset, file="/home/alussier/all.hyp.peakset.Rdata")
+load("/home/alussier/all.hyp.peakset.Rdata")
+
+gc()
+all.peakset = dba.count(all.peakset, minOverlap = 3)
+save(all.peakset, file="/home/alussier/all.hyp.peakset.Rdata")
+str(all.peakset$peaks)
+```

@@ -1,0 +1,135 @@
+---
+title: "Peaksets_P22_Hyp_WBC"
+output: html_document
+---
+
+*P22 HYP AND WBC PEAKS*
+```{r}
+library(DiffBind)
+#P22 Hyp#
+P22H_WBC.peakset <- dba.peakset(peaks = "/home/alussier/newdata/PX0183/macs/TGACCA_peaks.xls", sampID="C13", 
+                             tissue="hypo", treatment="Control", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TGACCA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CTTGTA_peaks.xls", sampID="C14", 
+                             tissue="hypo", treatment="Control", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CTTGTA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/AAGCGA_peaks.xls", sampID="C15", 
+                             tissue="hypo", treatment="Control", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AAGCGA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/ACTCTC_peaks.xls", sampID="C16", 
+                             tissue="hypo", treatment="Control", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ACTCTC.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/ATACGG_peaks.xls", sampID="E13", 
+                             tissue="hypo", treatment="PAE", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ATACGG.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/CACGAT_peaks.xls", sampID="E14", 
+                             tissue="hypo", treatment="PAE", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CACGAT.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/GAGTGG_peaks.xls", sampID="E15", 
+                             tissue="hypo", treatment="PAE", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_GAGTGG.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/CTGCTG_peaks.xls", sampID="E16", 
+                             tissue="hypo", treatment="PAE", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_CTGCTG.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/GCCGCG_peaks.xls", sampID="PF13", 
+                             tissue="hypo", treatment="Pairfed", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GCCGCG.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TCATTC_peaks.xls", sampID="PF14", 
+                             tissue="hypo", treatment="Pairfed", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TCATTC.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/TGGCGC_peaks.xls", sampID="PF15", 
+                             tissue="hypo", treatment="Pairfed", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_TGGCGC.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks ="/home/alussier/newdata/PX0184/macs/GTAGAG_peaks.xls", sampID="PF16", 
+                             tissue="hypo", treatment="Pairfed", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GTAGAG.filtered.merged.bam")
+  
+#P22 WBC#
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/ACAGTG_peaks.xls", sampID="C13", 
+                             tissue="wbc", treatment="Control", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_ACAGTG.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/AAACAT_peaks.xls", sampID="C14", 
+                             tissue="wbc", treatment="Control", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AAACAT.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/AAGGAC_peaks.xls", sampID="C15", 
+                             tissue="wbc", treatment="Control", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_AAGGAC.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/ACTGAT_peaks.xls", sampID="C16", 
+                             tissue="wbc", treatment="Control", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_ACTGAT.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/ATCCTA_peaks.xls", sampID="E13", 
+                             tissue="wbc", treatment="PAE", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_ATCCTA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/CACTCA_peaks.xls", sampID="E14", 
+                             tissue="wbc", treatment="PAE", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_CACTCA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/CCGCAA_peaks.xls", sampID="E15", 
+                             tissue="wbc", treatment="PAE", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_CCGCAA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/GAAACC_peaks.xls", sampID="E16", 
+                             tissue="wbc", treatment="PAE", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_GAAACC.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0184/macs/GCCTTA_peaks.xls", sampID="PF13", 
+                             tissue="wbc", treatment="Pairfed", replicate=1, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0184/merged/PX0184_C5DN1ANXX_8_GCCTTA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0182/macs/TCCCGA_peaks.xls", sampID="PF14", 
+                             tissue="wbc", treatment="Pairfed", replicate=2, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0182/merged/PX0182_C5DN1ANXX_6_TCCCGA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks = "/home/alussier/newdata/PX0183/macs/TTCGAA_peaks.xls", sampID="PF15", 
+                             tissue="wbc", treatment="Pairfed", replicate=3, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_TTCGAA.filtered.merged.bam")
+P22H_WBC.peakset <- dba.peakset(P22H_WBC.peakset, peaks ="/home/alussier/newdata/PX0183/macs/GTCCGC_peaks.xls", sampID="PF16", 
+                             tissue="wbc", treatment="Pairfed", replicate=4, condition = "P22",
+                             peak.caller="macs", peak.format="macs", minOverlap = 1,
+                             bamReads="/home/alussier/newdata/PX0183/merged/PX0183_C5DN1ANXX_7_GTCCGC.filtered.merged.bam")
+
+P22H_WBC.peakset
+par(mfrow=c(1,1))
+col.boxplot <- c("blue", "green", "red", "lightblue3","darkolivegreen1","lightcoral")
+total.intervals <- rbind(c(nrow(P22H_WBC.peakset$peaks[[1]]), nrow(P22H_WBC.peakset$peaks[[2]]), nrow(P22H_WBC.peakset$peaks[[3]]), nrow(P22H_WBC.peakset$peaks[[4]])), 
+                         c(nrow(P22H_WBC.peakset$peaks[[9]]), nrow(P22H_WBC.peakset$peaks[[10]]), nrow(P22H_WBC.peakset$peaks[[11]]), nrow(P22H_WBC.peakset$peaks[[12]])),
+                         c(nrow(P22H_WBC.peakset$peaks[[5]]), nrow(P22H_WBC.peakset$peaks[[6]]), nrow(P22H_WBC.peakset$peaks[[7]]), nrow(P22H_WBC.peakset$peaks[[8]])),  
+                         c(nrow(P22H_WBC.peakset$peaks[[13]]), nrow(P22H_WBC.peakset$peaks[[14]]), nrow(P22H_WBC.peakset$peaks[[15]]), nrow(P22H_WBC.peakset$peaks[[16]])),	
+                         c(nrow(P22H_WBC.peakset$peaks[[21]]), nrow(P22H_WBC.peakset$peaks[[22]]), nrow(P22H_WBC.peakset$peaks[[23]]), nrow(P22H_WBC.peakset$peaks[[24]])),
+                         c(nrow(P22H_WBC.peakset$peaks[[17]]), nrow(P22H_WBC.peakset$peaks[[18]]), nrow(P22H_WBC.peakset$peaks[[19]]), nrow(P22H_WBC.peakset$peaks[[20]])))
+
+total.intervals.2 <- rbind(total.intervals[1,1])
+rownames(total.intervals) <- c("Con_Hyp","PF_Hyp", "PAE_Hyp", "Con_WBC","PF_WBC", "PAE_WBC")
+colnames(total.intervals)
+boxplot2(t(total.intervals), ylab = "Average Peaks Called", col=col.boxplot, main="Average Peaks (from macs) per Treatment Group", ylim=c(0,250000), cex.axis=1.2)
+plot.new()
+legend("center", legend=c("Con_Hypo","PF_Hypo","PAE_Hypo", "", "Con_WBC","PF_WBC","PAE_WBC"), 
+       fill=c("blue","green", "red", "white", "lightblue3","darkolivegreen1","lightcoral"), 
+       border=FALSE, bty="n", y.intersp = 1, cex=1, x.intersp=0.35)
+
+
+P22H_WBC.peakset.backup <- P22H_WBC.peakset
+gc()
+#save(P22H_WBC.peakset, file="/home/alussier/P22H_WBC.peakset.Rdata")
+P22H_WBC.peakset = dba.count(P22H_WBC.peakset, minOverlap = 1)
+save(P22H_WBC.peakset, file="/home/alussier/P22H_WBC.peakset.Rdata")
+str(P22H_WBC.peakset$peaks[[24]])
+```
