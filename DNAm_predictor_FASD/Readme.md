@@ -5,9 +5,13 @@
   
   • doi: 10.1186/s13148-018-0439-6.
   
-  • https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0439-6
+  • GEO accession number: [GSE10904](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109042)
+  
+  • Source: https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0439-6
   
   • Predictor website: https://fasdpredictor.shinyapps.io/fasdpredictorapp/
+  
+  • Supplementary materials
 
 ## b. Scripts
    • Preprocessing and normalization
