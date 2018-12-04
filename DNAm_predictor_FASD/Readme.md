@@ -6,6 +6,8 @@
   • doi: 10.1186/s13148-018-0439-6.
   
   • https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-018-0439-6
+  
+  • Predictor website: https://fasdpredictor.shinyapps.io/fasdpredictorapp/
 
 ## b. Scripts
    • Preprocessing and normalization
