@@ -5,11 +5,11 @@
   
   • doi:10.3389/fgene.2018.00610
   
-  • GEO accession number: GSE121582
+  • GEO accession number: [GSE121582](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE121582)
   
   • Source: https://www.frontiersin.org/articles/10.3389/fgene.2018.00610/full
 
-  • Supplementary materials: https://www.frontiersin.org/articles/10.3389/fgene.2018.00610/full#supplementary-material
+  • Supplementary materials
 
 ## b. Scripts
     • Preprocessing pipeline
