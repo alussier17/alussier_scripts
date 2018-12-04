@@ -3,11 +3,11 @@
 
 • Preprocessing pipeline
 
-• Analysis - Developmental
+• Analysis - Developmental profile of the hypothalamus
 
-• Analysis - Tissue-concordant
+• Analysis - Tissue-concordant analysis of hypothalamus and WBC
 
-• Analysis - Age-related
+• Analysis - Typical development of the hypothalamus
 
 • Annotation
 
