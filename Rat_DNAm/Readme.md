@@ -5,6 +5,8 @@
   
   • doi:10.3389/fgene.2018.00610
   
+  • GEO accession number: GSE121582
+  
   • Source: https://www.frontiersin.org/articles/10.3389/fgene.2018.00610/full
 
   • Supplementary materials: https://www.frontiersin.org/articles/10.3389/fgene.2018.00610/full#supplementary-material
