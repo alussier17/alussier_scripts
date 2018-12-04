@@ -16,8 +16,8 @@
 ## b. Scripts
    • Preprocessing and normalization
    
-   • Analysis
+   • Replication analysis
    
-   • Predictor
+   • Predictor generation
    
    • Website source code
