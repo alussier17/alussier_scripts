@@ -12,14 +12,14 @@
   • Supplementary materials
 
 ## b. Scripts
-    • Preprocessing pipeline
+  • Preprocessing pipeline
     
-    • Analysis - Developmental
+  • Analysis - Developmental
     
-    • Analysis - Tissue-concordant
+  • Analysis - Tissue-concordant
     
-    • Analysis - Age-related
+  • Analysis - Age-related
     
-    • Annotation 
+  • Annotation 
     
-    • Other
+  • Other
