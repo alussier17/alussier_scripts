@@ -1,6 +1,6 @@
 # Information on Prenatal alcohol exposure alters steady-state and activated gene expression in the adult rat brain. 
 
-## a. Manuscript
+## a. Main manuscript (ACER)
   • Citation: Lussier AA, Stepien KA, Neumann SM, Pavlidis P, Kobor MS, Weinberg J. Prenatal alcohol exposure alters steady-state and activated gene expression in the adult rat brain. Alcohol Clin Exp Res. 2015 Feb;39(2):251-61.
   
   • doi:10.1111/acer.12622
