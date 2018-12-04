@@ -6,7 +6,13 @@ alcohol spectrum disorder. Epigenetics Chromatin. 2016 Jun 29;9:25.
 
   • doi:10.1186/s13072-016-0074-4. 
 
+  • GEO accession number: [GSE80261](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE80261)
+  
   • Source: https://epigeneticsandchromatin.biomedcentral.com/articles/10.1186/s13072-016-0074-4
+  
+  • Supplementary materials 
+  
+  
 ## b. Scripts
   • Results generation
   
