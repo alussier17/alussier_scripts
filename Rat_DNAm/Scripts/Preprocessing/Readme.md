@@ -1,4 +1,4 @@
-# Preprocessing of rn6 aligned bam files
+# Preprocessing of rn6 aligned medip-seq bam files
 
 ### 1. Filter bam files using samtools 
     • samtools_filter_newdata.py
