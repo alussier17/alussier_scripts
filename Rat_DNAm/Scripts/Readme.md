@@ -17,13 +17,54 @@
         • Split into three scripts to parallelize (one for each sequencing pool)
 
 #### • Analysis - Developmental profile of the hypothalamus
+    1. Generate peaksets for analysis in R
+        • Peaksets_developmental.Rmd
+            • Creates a peakset for all hypothalamus samples across 4 ages (P1,P8,P15,P22)
+
+    2. Normalize and correct data
+        • Normalization_developmental.Rmd
+            • Data filtering
+            • RPKM normalization
+            • ComBat correction
+    
+    3. Analyze data and plot results
+        • Analysis_developmental.Rmd
+            • Final glm used in manuscript
+            • Genomic enrichment analysis
+            • TFBS analysis
+            • ermineJ table generation
+            • Publication figures
 
 #### • Analysis - Tissue-concordant analysis of hypothalamus and WBC
+    1. Generate peaksets for analysis in R
+        • Peaksets_tissue_concordant.Rmd
+            • Creates a peakset for P22 samples (WBC and hypothalamus)
 
-#### • Analysis - Typical development of the hypothalamus
-
-#### • annotation.R
-    • Custom annotations the developmental and tissue-concordant datasets (P22). 
-    • Genomic features, DNA sequences, and CG content.
+    2. Normalize and correct data
+        • Normalization_tissue_concordant.Rmd
+            • Data filtering
+            • RPKM normalization
+            • ComBat correction
+    
+    3. Analyze data and plot results
+        • Analysis_tissue_concordant.Rmd
+            • Final glm used in manuscript
+            • Genomic enrichment analysis
+            • TFBS analysis
+            • ermineJ table generation
+            • Publication figures
 
 #### • Other
+    1. annotation.R
+        • Custom annotations the developmental and tissue-concordant datasets (P22). 
+        • Genomic features, DNA sequences, and CG content.
+    2. cell_type_prediction.Rmd
+        • Moderate cell type correction using RNA-seq data from Cahoy et al., 2008
+        • Used in the developmental analysis
+
+### • Coming soon:
+    1. Analysis - Typical development of the hypothalamus
+    2. Unused scripts
+        • Analysis of repeat sequences
+        • read.bedgraph
+        • Plotting bedgraph data in R
