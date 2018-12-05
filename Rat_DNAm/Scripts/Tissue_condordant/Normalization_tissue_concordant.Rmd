@@ -1,0 +1,187 @@
+---
+title: "Normalization_tissue_concordant"
+output: html_document
+---
+
+*Libraries*
+```{r}
+library(DiffBind)
+library(edgeR)
+library(extrafont)
+library(gplots)
+library(RColorBrewer)
+library(sva)
+```
+
+*LOADING METADATA*
+```{r}
+# METADATA#
+metadata<- read.csv("/home/alussier/Metadata_updated.csv",header=T)
+meta.all <- metadata[1:48,-61:-62,]
+meta.all <- meta.all[,c(-1,-6,-24,-25)]
+
+#for P22 samples
+meta.P22 <- metadata[37:60,-61:-62,]
+meta.P22 <- meta.P22[,c(-1,-6,-24,-25)]
+str(meta.P22)
+dim(meta.P22)
+meta.P22$Age <- as.factor(meta.P22$Age)
+meta.P22$Tissue <- as.factor(meta.P22$Tissue)
+meta.P22$Breeding <- as.factor(meta.P22$Breeding)
+meta.P22$Extraction.round <- as.factor(meta.P22$Extraction.round)
+meta.P22$meDIP.round <- as.factor(meta.P22$meDIP.round)
+  
+meta.P22$Dam.final.weight..g.<- as.numeric(meta.P22$Dam.final.weight..g.)
+meta.P22$Litter.Size....of.pups.<-as.numeric(meta.P22$Litter.Size....of.pups.)
+meta.P22$meDIP.fold.enrichment.ratio <-as.numeric(meta.P22$meDIP.fold.enrichment.ratio)
+head(meta.P22)
+meta.P22H_WBC.noout <- meta.P22[-23,]
+
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+```
+
+*GETTING COUNTS FROM PEAKSETS*
+```{r}
+load("/home/alussier/P22H_WBC.peakset.Rdata")
+str(P22H_WBC.peakset)
+P22H_WBC.peaks <- as.data.frame(cbind(P22H_WBC.peakset$peaks[[1]]$Reads, P22H_WBC.peakset$peaks[[2]]$Reads, P22H_WBC.peakset$peaks[[3]]$Reads,
+                                 P22H_WBC.peakset$peaks[[4]]$Reads, P22H_WBC.peakset$peaks[[5]]$Reads, P22H_WBC.peakset$peaks[[6]]$Reads,
+                                 P22H_WBC.peakset$peaks[[7]]$Reads, P22H_WBC.peakset$peaks[[8]]$Reads, P22H_WBC.peakset$peaks[[9]]$Reads,
+                                 P22H_WBC.peakset$peaks[[10]]$Reads, P22H_WBC.peakset$peaks[[11]]$Reads, P22H_WBC.peakset$peaks[[12]]$Reads,
+                                   
+                                 P22H_WBC.peakset$peaks[[13]]$Reads, P22H_WBC.peakset$peaks[[14]]$Reads, P22H_WBC.peakset$peaks[[15]]$Reads,
+                                 P22H_WBC.peakset$peaks[[16]]$Reads, P22H_WBC.peakset$peaks[[17]]$Reads, P22H_WBC.peakset$peaks[[18]]$Reads,
+                                 P22H_WBC.peakset$peaks[[19]]$Reads, P22H_WBC.peakset$peaks[[20]]$Reads, P22H_WBC.peakset$peaks[[21]]$Reads,
+                                 P22H_WBC.peakset$peaks[[22]]$Reads, P22H_WBC.peakset$peaks[[23]]$Reads, P22H_WBC.peakset$peaks[[24]]$Reads
+                                 ))
+                          
+row.names(P22H_WBC.peaks) <- paste(paste(P22H_WBC.peakset$peaks[[1]]$Chr, P22H_WBC.peakset$peaks[[1]]$Start, sep=":"), 
+                                             P22H_WBC.peakset$peaks[[1]]$End, sep="-")
+peaks.info <- data.frame(chr=P22H_WBC.peakset$peaks[[1]]$Chr, start =P22H_WBC.peakset$peaks[[1]]$Start, end =  P22H_WBC.peakset$peaks[[1]]$End)
+peaks.info$chr <- gsub(pattern="chr",replacement="", peaks.info$chr)
+head(peaks.info)
+row.names(peaks.info) <- row.names(P22H_WBC.peaks)
+#write.table(peaks.info, file="~/BvB_peaks_info_20150422.txt",sep="\t",row.names=T,col.names=T, quote=F)
+
+colnames(P22H_WBC.peaks) <- c("C13_HYP","C14_HYP","C15_HYP","C16_HYP","E13_HYP","E14_HYP","E15_HYP","E16_HYP",
+                           "PF13_HYP","PF14_HYP","PF15_HYP","PF16_HYP","C13_WBC","C14_WBC","C15_WBC","C16_WBC",
+                           "E13_WBC","E14_WBC","E15_WBC","E16_WBC","PF13_WBC","PF14_WBC","PF15_WBC","PF16_WBC")
+dim(P22H_WBC.peaks)
+head(P22H_WBC.peaks)
+
+P22H_WBC.peaks.filt <- data.frame(P22H_WBC.peaks[-c(grep("chrY", rownames(P22H_WBC.peaks))),])
+rownames(P22H_WBC.peaks.filt) <- rownames(P22H_WBC.peaks)[-c(grep("chrY", rownames(P22H_WBC.peaks)))]
+dim(P22H_WBC.peaks.filt)
+filt.counts <- lapply(1:ncol(P22H_WBC.peaks.filt), function(x) {sum(P22H_WBC.peaks.filt[,x])})
+
+
+# ADJUSTING TO READS/KB - (takes a while...) 
+peak.size <- (as.numeric((P22H_WBC.peakset$peaks[[1]]$End-P22H_WBC.peakset$peaks[[1]]$Start)/1000))
+ps <- (as.numeric((P22H_WBC.peakset$peaks[[1]]$End-P22H_WBC.peakset$peaks[[1]]$Start)))
+quantile(ps)
+mean(ps)
+boxplot(ps, aps, names=c("818\nP22","639\nDev"), main="Distribution of peak sizes")
+
+adjusted.peaks.list <- lapply(1:length(peak.size), function(x) {
+  P22H_WBC.peaks[x,]/peak.size[x] } )
+adjusted.peaks <- do.call(rbind, adjusted.peaks.list)
+head(adjusted.peaks)
+
+#REMOVING PEAKS IN CHROMOSOME Y
+adjusted.peaks.filt <- data.frame(adjusted.peaks[-c(grep("chrY", rownames(adjusted.peaks))),])
+rownames(adjusted.peaks.filt) <- rownames(adjusted.peaks[-c(grep("chrY", rownames(adjusted.peaks))),])
+dim(adjusted.peaks.filt)
+head(adjusted.peaks.filt)
+
+save(adjusted.peaks.filt, file="~/Rscripts/P22H_WBC.adjusted.filt.peaks.Rdata")
+
+#ADJUSTING TO RPKM, BUT WITH ONLY COUNTS IN PEAKS (not chrY)
+adjusted.peaks.cpm <- cpm(adjusted.peaks.filt, lib.size =as.numeric(filt.counts, log=F))
+head(adjusted.peaks.cpm[,])
+heatmap.2(cor(adjusted.peaks.cpm, method="spearman"), col= col, trace="none",dendrogram="col", main="Pairwise Spearman Correlations", margins=c(7,7))
+d <- cor(adjusted.peaks.cpm, method="pearson")
+plot(hclust(dist(1-d)), ) # Sample tree 
+
+par(cex.axis = 1.2)
+
+# NEED TO REMOVE PF15_WBC - DOES NOT CLUSTER WITH WBC SAMPLES... 
+adjusted.peaks.filt.noout <- adjusted.peaks.filt[,-c(grep("PF15_WBC", colnames(adjusted.peaks.filt)))]
+dim(adjusted.peaks.filt.noout)
+head(adjusted.peaks.filt.noout)
+
+#save(adjusted.peaks.filt.noout, file="~/Rscripts/P22H_WBC.adjusted.filt.noout.peaks.Rdata")
+heatmap.2(cor(adjusted.peaks.filt.noout), col= col, trace="none", dendrogram="col", main="Pairwise Pearson Correlations \n(no outlier)",
+          margins=c(7,7))
+d <- cor(adjusted.peaks.filt.noout, method="spearman")
+plot(hclust(dist(1-d))) # Sample tree 
+
+
+```
+
+*COMBAT*
+```{r}
+#combat#
+P22H_WBC.dge <- DGEList(counts = P22H_WBC.peaks.filt[,-23], genes=rownames(P22H_WBC.peaks.filt), 
+                        group=metadata[c(37:58,60),3], 
+                        norm.factors = NULL, remove.zeros=TRUE, lib.size=as.numeric(filt.counts[-23]))
+P22H_WBC.dge$samples$tissue <- meta.P22H_WBC.noout[,3]
+P22H_WBC.dge$samples$ext.rnd <- meta.P22H_WBC.noout[,18]
+
+filt.counts.noout <- filt.counts[-23]
+adjusted.peaks.filt.noout.peakcpm <- cpm(adjusted.peaks.filt.noout, lib.size =as.numeric(filt.counts.noout, log=F))
+head(adjusted.peaks.filt.noout.peakcpm)
+dim(adjusted.peaks.filt.noout.peakcpm)
+
+
+mod.com = model.matrix(~group, data=P22H_WBC.dge$samples)
+batch.com = P22H_WBC.dge$samples$ext.rnd
+
+
+peaks.adj.norm.combat <- ComBat(dat= adjusted.peaks.filt.noout.peakcpm, batch=batch.com, mod=mod.com,
+                              par.prior=T, prior.plots=F)
+dim(peaks.adj.norm.combat)
+
+PCA_full.corr <- princomp(peaks.adj.norm.combat, cor=F) #cor=T when raw data
+Loadings.corr <- as.data.frame(unclass(PCA_full.corr$loadings))
+vars.corr <- PCA_full.corr$sdev^2
+Importance.corr <-vars.corr/sum(vars.corr)
+meta.P22H_WBC.noout <- meta.P22[-23,]
+meta_categorical <- (meta.P22H_WBC.noout[,c(2,3,4,18)])
+meta_continuous <- (meta.P22H_WBC.noout[,c(9:13,15:17,20,21)])
+heat_scree_plot(Loadings.corr, Importance.corr)
+
+colnames(peaks.adj.norm.combat) <- c("C13_HYP","C14_HYP","C15_HYP","C16_HYP","E13_HYP","E14_HYP","E15_HYP","E16_HYP",
+                           "PF13_HYP","PF14_HYP","PF15_HYP","PF16_HYP","C13_WBC","C14_WBC","C15_WBC","C16_WBC",
+                           "E13_WBC","E14_WBC","E15_WBC","E16_WBC","PF13_WBC","PF14_WBC","PF16_WBC")
+
+peaks.adj.norm.combat.backup<- peaks.adj.norm.combat
+peaks.adj.norm.combat[peaks.adj.norm.combat<0]=min(peaks.adj.norm.combat[peaks.adj.norm.combat>0])
+head(peaks.adj.norm.combat)
+dim(peaks.adj.norm.combat)
+
+e <- cor(peaks.adj.norm.combat, method="spearman")
+plot(hclust(dist(1-e))) # Sample tree 
+
+#keep <- rowSums(peaks.adj.norm.combat > 1) >= 4
+#peaks.adj.norm.combat <- peaks.adj.norm.combat[keep,]
+#dim(peaks.adj.norm.combat)
+
+heatmap.2(cor(peaks.adj.norm.combat, method="pearson"), trace="none", col=col, dendrogram="col", main="Pairwise Pearson Correlations\n(post-ComBat)")
+
+#UNDOING COUNTS PER MILLION
+P22H_WBC.raw.peaks.adj.norm.combat.list <- lapply(1:length(filt.counts.noout), function(x) {
+  peaks.adj.norm.combat[,x]*(as.numeric(filt.counts.noout[x])/1000000) } )
+P22H_WBC.raw.peaks.adj.norm.combat <- do.call(cbind, raw.peaks.adj.norm.combat.list)
+
+head(P22H_WBC.raw.peaks.adj.norm.combat)
+dim(P22H_WBC.raw.peaks.adj.norm.combat)
+
+colnames(P22H_WBC.raw.peaks.adj.norm.combat) <- c("C13_HYP","C14_HYP","C15_HYP","C16_HYP","E13_HYP","E14_HYP",
+                                                  "E15_HYP","E16_HYP","PF13_HYP","PF14_HYP","PF15_HYP","PF16_HYP",
+                                                  "C13_WBC","C14_WBC","C15_WBC","C16_WBC","E13_WBC","E14_WBC",
+                                                  "E15_WBC","E16_WBC","PF13_WBC","PF14_WBC","PF16_WBC")
+
+head(P22H_WBC.raw.peaks.adj.norm.combat)
+dim(P22H_WBC.raw.peaks.adj.norm.combat)
+#save(P22H_WBC.raw.peaks.adj.norm.combat, file="~/Rscripts/P22H_WBC.combatadj.raw.Rdata")
+```

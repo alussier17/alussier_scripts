@@ -1,0 +1,888 @@
+---
+title: "Analysis_tissue_concordant"
+output: html_document
+---
+
+*Libraries*
+```{r}
+library(cowplot)
+library(DiffBind)
+library(edgeR)
+library(ENmisc)
+library(extrafont)
+library(ggplot2)
+library(gplots)
+library(gridExtra)
+library(limma)
+library(plyr)
+library(PWMEnrich)
+library(PWMEnrich.Mmusculus.background)
+library(RColorBrewer)
+library(reshape)
+library(snowfall)
+library(sva)
+library(VennDiagram)
+```
+
+*LOADING METADATA*
+```{r}
+# METADATA#
+metadata<- read.csv("/home/alussier/Metadata_updated.csv",header=T)
+meta.all <- metadata[1:48,-61:-62,]
+meta.all <- meta.all[,c(-1,-6,-24,-25)]
+
+#for P22 samples
+meta.P22 <- metadata[37:60,-61:-62,]
+meta.P22 <- meta.P22[,c(-1,-6,-24,-25)]
+str(meta.P22)
+dim(meta.P22)
+meta.P22$Age <- as.factor(meta.P22$Age)
+meta.P22$Tissue <- as.factor(meta.P22$Tissue)
+meta.P22$Breeding <- as.factor(meta.P22$Breeding)
+meta.P22$Extraction.round <- as.factor(meta.P22$Extraction.round)
+meta.P22$meDIP.round <- as.factor(meta.P22$meDIP.round)
+  
+meta.P22$Dam.final.weight..g.<- as.numeric(meta.P22$Dam.final.weight..g.)
+meta.P22$Litter.Size....of.pups.<-as.numeric(meta.P22$Litter.Size....of.pups.)
+meta.P22$meDIP.fold.enrichment.ratio <-as.numeric(meta.P22$meDIP.fold.enrichment.ratio)
+head(meta.P22)
+meta.P22H_WBC.noout <- meta.P22[-23,]
+
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+```
+
+*DGE LIST FOR LINEAR MODELING*
+```{r}
+load("~/Rscripts/P22H_WBC.combatadj.raw.Rdata")
+P22H_WBC.dge <- DGEList(counts=P22H_WBC.raw.peaks.adj.norm.combat, genes=rownames(P22H_WBC.raw.peaks.adj.norm.combat),
+                        group=metadata[c(37:58,60),3], norm.factors = NULL, remove.zeros=TRUE,
+                        lib.size=as.numeric(filt.counts.noout))
+
+P22H_WBC.dge$samples$age <- meta.P22H_WBC.noout[,1]
+P22H_WBC.dge$samples$tissue <- meta.P22H_WBC.noout[,3]
+P22H_WBC.dge$samples$tissue <- factor(P22H_WBC.dge$samples$tissue)
+P22H_WBC.dge$samples$breeding <- meta.P22H_WBC.noout[,4]
+P22H_WBC.dge$samples$breeding <- factor(P22H_WBC.dge$samples$breeding)
+P22H_WBC.dge$samples$ext.rnd <- meta.P22H_WBC.noout[,18]
+P22H_WBC.dge$samples$meDIP.rnd <- meta.P22H_WBC.noout[,19]
+
+P22H_WBC.dge$samples$hyp_weight <- meta.P22H_WBC.noout[,17]
+P22H_WBC.dge$samples$dam.initial <- meta.P22H_WBC.noout[,9]
+P22H_WBC.dge$samples$dam.final <- meta.P22H_WBC.noout[,10]
+P22H_WBC.dge$samples$litter.size <- meta.P22H_WBC.noout[,11]
+P22H_WBC.dge$samples$avg.pup.weight <- meta.P22H_WBC.noout[,12]
+P22H_WBC.dge$samples$animal.weight <- meta.P22H_WBC.noout[,13]
+P22H_WBC.dge$samples$brain.with <- meta.P22H_WBC.noout[,15]
+P22H_WBC.dge$samples$brain.w.o <- meta.P22H_WBC.noout[,16]
+P22H_WBC.dge$samples$meDIP.FE <- meta.P22H_WBC.noout[,20]
+P22H_WBC.dge$samples$meDIP.spec <- meta.P22H_WBC.noout[,21]
+
+P22H_WBC.dge <- estimateCommonDisp(P22H_WBC.dge)
+P22H_WBC.dge <- estimateTagwiseDisp(P22H_WBC.dge)
+
+```
+
+*LINEAR MODELING*
+```{r}
+P22H_WBC.model.mat <- model.matrix(~0+group+tissue+breeding, data= P22H_WBC.dge$samples)
+colnames(P22H_WBC.model.mat)
+colnames(P22H_WBC.model.mat) <- c("Con","PAE","PF", "wbc","Dev4")
+
+P22H_WBC.model <- P22H_WBC.dge
+P22H_WBC.model <- estimateGLMCommonDisp(P22H_WBC.model, P22H_WBC.model.mat)
+P22H_WBC.model <- estimateGLMTrendedDisp(P22H_WBC.model, P22H_WBC.model.mat)
+P22H_WBC.model <- estimateGLMTagwiseDisp(P22H_WBC.model, P22H_WBC.model.mat)
+plotBCV(P22H_WBC.model)
+P22H_WBC.fit <- glmFit(P22H_WBC.model, P22H_WBC.model.mat)
+
+# PAE vs Con
+P22H_WBC.lrt <- glmLRT(P22H_WBC.fit, contrast=makeContrasts(PAE-Con, levels=P22H_WBC.model.mat))  
+P22H_WBC.toptags <- topTags(P22H_WBC.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(P22H_WBC.toptags$table$PValue))
+P22H_WBC.sig <- P22H_WBC.toptags[P22H_WBC.toptags$table$FDR<0.05,] 
+dim(P22H_WBC.sig) 
+
+#PAE vs PF
+P22H_WBC.lrt.PAEvPF <- glmLRT(P22H_WBC.fit, contrast=makeContrasts(PAE-PF, levels=P22H_WBC.model.mat))  
+P22H_WBC.toptags.PAEvPF <- topTags(P22H_WBC.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(P22H_WBC.toptags.PAEvPF$table$PValue))
+P22H_WBC.sig.PAEvPF <- P22H_WBC.toptags.PAEvPF[P22H_WBC.toptags.PAEvPF$table$FDR<0.05,] 
+dim(P22H_WBC.sig.PAEvPF) 
+
+
+# PF vs Con
+P22H_WBC.lrt.PFvC <- glmLRT(P22H_WBC.fit, contrast=makeContrasts(PF-Con, levels=P22H_WBC.model.mat))  
+P22H_WBC.toptags.PFvC <- topTags(P22H_WBC.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(P22H_WBC.toptags.PFvC$table$PValue))
+P22H_WBC.sig.PFvC <- P22H_WBC.toptags.PFvC[P22H_WBC.toptags.PFvC$table$FDR<0.05,] 
+dim(P22H_WBC.sig.PFvC)
+
+
+#HITS#
+#P22H_WBC.sig <- P22H_WBC.toptags[P22H_WBC.toptags$table$FDR<0.05 & P22H_WBC.toptags$table$logFC>=0.5,] 
+#P22H_WBC.sig.PAEvPF <- P22H_WBC.toptags.PAEvPF[P22H_WBC.toptags.PAEvPF$table$FDR<0.05 &
+#                                                 P22H_WBC.toptags.PAEvPF$table$logFC>=0.5,] 
+#P22H_WBC.sig.PFvC <- P22H_WBC.toptags.PFvC[P22H_WBC.toptags.PFvC$table$FDR<0.05 & P22H_WBC.toptags.PFvC$table$logFC>=0.5,] 
+P22H_WBC.PAEvCvPF <- merge(P22H_WBC.sig$table, P22H_WBC.sig.PAEvPF$table, by="genes", all=F)
+P22H_WBC.hits <- ((P22H_WBC.PAEvCvPF[!P22H_WBC.PAEvCvPF$genes %in% P22H_WBC.sig.PFvC$table$genes,]))
+dim(P22H_WBC.hits)
+head(P22H_WBC.hits)
+P22H_WBC.sig.PFvC$table[which(P22H_WBC.sig.PFvC$table$genes == "chr10:54524382-54524791"),]
+boxplot(P22H_WBC.dge$counts["chr10:54524382-54524791",1:4],
+        P22H_WBC.dge$counts["chr10:54524382-54524791",13:16],
+        P22H_WBC.dge$counts["chr10:54524382-54524791",9:12],
+        P22H_WBC.dge$counts["chr10:54524382-54524791",21:23],
+        P22H_WBC.dge$counts["chr10:54524382-54524791",5:8],
+        P22H_WBC.dge$counts["chr10:54524382-54524791",17:20])
+
+#write.table(P22H_WBC.hits, file= "~/BvB_top_hits_FDR_0.05_20150422.txt", sep="\t",row.names=T,col.names=T,quote=F)
+#P22H_WBC.hits <- (read.table("~/BvB_top_hits_FDR_0.05_20150422.txt"))
+head(P22H_WBC.hits)
+2^(table.info[1,3])
+table.info <- cbind(P22H_WBC.sig$table[which(P22H_WBC.sig$table$genes %in% P22H_WBC.hits$genes),],
+               P22H_WBC.sig.PAEvPF$table[which(P22H_WBC.sig.PAEvPF$table$genes %in% P22H_WBC.hits$genes),],
+               P22H_WBC.toptags.PFvC$table[which(P22H_WBC.toptags.PFvC$table$genes %in% P22H_WBC.hits$genes),])
+write.table(table.info, "/Users/aal89/Dropbox/Manuscripts/Under\ review/Rat_DNAm/Submission/Frontiers\ in\ Genetics/Revisions/Analysis/P22H_WBC_hits.detail.txt", sep ="\t", row.names=F, quote=F)
+
+```
+
+*P-value distributions and venn diagram*
+```{r}
+#Density plots #
+par(lwd=3)
+plot(0, xlab="P-value", ylab="Density", type="n", xlim=c(-0.1,1.1), ylim=c(0,3), 
+     main="P-value Distributions\n(~0+group+tissue+breeding)", xaxs="i", yaxs="i", cex.lab=1.4, cex.axis=1.2)
+lines(density(P22H_WBC.toptags$table$PValue), col="#A50A16", lty=1)
+lines(density(P22H_WBC.toptags.PAEvPF$table$PValue), col="#285F29", lty=2)
+lines(density(P22H_WBC.toptags.PFvC$table$PValue), col="#232F66", lty=6)
+legend("topright",c("PAEvCon","PAEvPF","PFvC"), col=c("#A50A16","#285F29","#232F66"), lty=c(1,2,6), cex=1.2)
+par(lwd=1)
+
+#Venn of overlaps
+par(mfrow=c(1,1))
+
+v1 <-P22H_WBC.sig$table$genes
+v2 <- P22H_WBC.sig.PAEvPF$table$genes
+v3 <- P22H_WBC.sig.PFvC$table$genes
+
+a <- venn(list(PAEvC= v1,PAEvPF= v2, PFvC= v3)) 
+b <- cbind(a[,2],a[,3],a[,4],a[,1])
+colnames(b) <- c("PAEvC","PAEvPF","PFvC","Counts")
+class(b) <- "VennCounts"
+b[1,4]<-sum(b[,4])
+par(lwd=1)
+vennDiagram(b, circle.col=c("#A50A16","#347E35","#232F66"), main="Overlap of hits at FDR<0.05", cex=2, family="Arial")
+par()
+?vennDiagram
+
+overlaps <- cbind(BvB = c(0,0,0,0,1,1,1,1), Dev = c(0,0,1,1,0,0,1,1), Human = c(0,1,0,1,0,1,0,1), Counts = c(494,396,29,3,60,4,2,0)) 
+rownames(overlaps) <- c("000", "001","010","011","100","101","110","111") 
+class(overlaps) <- "VennCounts"
+vennDiagram(overlaps, circle.col=c("#999999","#BF853E","#55757F"), main="Gene overlap of different analyses", cex=2, family="Arial")
+?vennDiagram
+
+overlaps.rev <- cbind(Dev = c(0,0,0,0,1,1,1,1), BvB = c(0,0,1,1,0,0,1,1), Human = c(0,1,0,1,0,1,0,1), Counts = c(494,396,60,4,29,3,2,0)) 
+rownames(overlaps.rev) <- c("000", "001","010","011","100","101","110","111") 
+class(overlaps.rev) <- "VennCounts"
+vennDiagram(overlaps.rev, circle.col=c("#999999","#BF853E","#55757F"), main="Gene overlap of different analyses", cex=2, family="Arial")
+
+```
+
+*Volcano Plot*
+```{r}
+par(mfrow=c(2,2), cex.axis=1.2, cex.lab=1.5)
+with(P22H_WBC.toptags$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PAEvCon Volcano plot", xlim=c(-3,3), ylim=c(0,20)))
+with(subset(P22H_WBC.toptags$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(P22H_WBC.toptags$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(P22H_WBC.toptags$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), cex=0.5, pch=20, col="green"))
+
+with(P22H_WBC.toptags.PAEvPF$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PAEvPF Volcano plot", xlim=c(-3,3), ylim=c(0,20)))
+with(subset(P22H_WBC.toptags.PAEvPF$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(P22H_WBC.toptags.PAEvPF$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(P22H_WBC.toptags.PAEvPF$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="green"))
+
+with(P22H_WBC.toptags.PFvC$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PFvCon Volcano plot", xlim=c(-3,3),ylim=c(0,20)))
+with(subset(P22H_WBC.toptags.PFvC$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(P22H_WBC.toptags.PFvC$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(P22H_WBC.toptags.PFvC$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="green"))
+
+par(lwd=3)
+plot(0, xlab="P-value", ylab="Density", type="n", xlim=c(-0.1,1.1), ylim=c(0,3), 
+     main="P-value Distributions\n(~0+group+tissue+breeding)", xaxs="i", yaxs="i", cex.lab=1.5, cex.axis=1.2)
+lines(density(P22H_WBC.toptags$table$PValue), col="#A50A16", lty=1)
+lines(density(P22H_WBC.toptags.PAEvPF$table$PValue), col="#285F29", lty=2)
+lines(density(P22H_WBC.toptags.PFvC$table$PValue), col="#232F66", lty=6)
+legend("topright",c("PAEvCon","PAEvPF","PFvC"), col=c("#A50A16","#285F29","#232F66"), lty=c(1,2,6), cex=1.05)
+par(lwd=1)
+plot.new()
+#legend("center",c("FDR<0.05","logFC>1","FDR<0.05 & logFC>1"), col=c("red","orange","green"), pch=20,cex=2)
+750/20
+
+par(mfrow=c(1,1))
+```
+
+*Tables for ermineJ*
+```{r}
+BvB.PAEvC.table <- merge(data.frame(P22H_WBC.toptags), p22.annot, by="genes", all.x=T)
+head(BvB.PAEvC.table)
+dim(BvB.PAEvC.table)
+BvB.PAEvC.table <- BvB.PAEvC.table[complete.cases(BvB.PAEvC.table$name),]
+head(BvB.PAEvC.table)
+dim(BvB.PAEvC.table)
+BvB.PAEvC.table <- BvB.PAEvC.table[,c(8,5,6)]
+dim(BvB.PAEvC.table)
+write.table(BvB.PAEvC.table, file="~/ermineJ/BvB_20150613/BvB.PAEvC.table.txt", sep="\t",row.names=F,col.names = T, quote=F)
+
+
+
+BvB.PAEvC.table <- read.table(file="~/ermineJ/BvB_20150613/BvB.PAEvC.table.txt",row.names=F,col.names = T)
+
+BvB.PAEvPF.table <- merge(data.frame(P22H_WBC.toptags.PAEvPF), p22.annot, by="genes", all.x=T)
+head(BvB.PAEvPF.table)
+dim(BvB.PAEvPF.table)
+BvB.PAEvPF.table <- BvB.PAEvPF.table[complete.cases(BvB.PAEvPF.table$name),]
+head(BvB.PAEvPF.table)
+dim(BvB.PAEvPF.table)
+BvB.PAEvPF.table <- BvB.PAEvPF.table[,c(8,5,6)]
+dim(BvB.PAEvPF.table)
+write.table(BvB.PAEvPF.table, file="~/ermineJ/BvB_20150613/BvB.PAEvPF.table.txt", sep="\t",row.names=F,col.names = T, quote=F)
+
+BvB.PFvC.table <- merge(data.frame(P22H_WBC.toptags.PFvC), p22.annot, by="genes", all.x=T)
+head(BvB.PFvC.table)
+dim(BvB.PFvC.table)
+BvB.PFvC.table<- BvB.PFvC.table[complete.cases(BvB.PFvC.table$name),]
+head(BvB.PFvC.table)
+dim(BvB.PFvC.table)
+BvB.PFvC.table <- BvB.PFvC.table[,c(8,5,6)]
+head(BvB.PFvC.table)
+
+count(duplicated(BvB.PFvC.table$genes))
+write.table(BvB.PFvC.table, file="~/ermineJ/BvB_20150613/BvB.PFvC.table.txt", sep="\t",row.names=F, col.names = T, quote=F)
+
+```
+
+*Pretty graphs*
+```{r}
+source("~/Rscripts/heatmap.3.R")
+sideCols = cbind(c("#232F66","#232F66","#232F66","#232F66","#A50A16","#A50A16","#A50A16","#A50A16",
+                   "#347E35","#347E35","#347E35","#347E35","#232F66","#232F66","#232F66","#232F66",
+                   "#A50A16","#A50A16","#A50A16","#A50A16","#347E35","#347E35","#347E35"), 
+             c("grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey",
+               "black","black","black","black","black","black","black","black","black","black","black") )
+colnames(sideCols) <- c("Treatment", "Tissue")
+str(sideCols)
+
+boxplot(P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),1:4],
+        P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),13:16],
+        P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),9:12],
+        P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),21:23],
+        P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),5:8],
+        P22H_WBC.hits.cpm[grep("chr2:243719416-243720233", rownames(P22H_WBC.hits.cpm)),17:20])
+
+#Heatmap all hits
+head(P22H_WBC.fit$counts)
+
+P22H_WBC.hits.cpm <- (cpm(P22H_WBC.fit$counts[as.character(P22H_WBC.hits$genes),], 
+                  log=F, lib.size=P22H_WBC.fit$samples$lib.size))
+dim(P22H_WBC.hits.cpm)
+head(P22H_WBC.hits.cpm)
+
+par(cex.axis=2, family="Arial")
+P22H_WBC.heatmapnames <- gsub("_HYP","",colnames(P22H_WBC.hits.cpm))
+P22H_WBC.heatmapnames <- gsub("_WBC","",P22H_WBC.heatmapnames)
+
+heatmap.3(P22H_WBC.hits.cpm, Rowv = T, Colv = T, trace="none", dendrogram = "column", col=rev(col), scale="row",
+          main="Hits at FDR<0.05", ColSideColors= sideCols, density.info= "none", 
+          labRow=NA,labCol=colnames(P22H_WBC.hits.cpm),
+          margins = c(8, 8), ColSideColorsSize=1.8, cexCol=1.5,key=T) 
+          
+plot(hclust(dist(t(P22H_WBC.hits.cpm))))
+plot(hclust(as.dist(1-cor(P22H_WBC.hits.cpm, method="pearson"))))
+
+myfun <- function(x) hclust(as.dist(1-cor(t(as.matrix(x)), method =
+                                            "pearson")), method = "complete")
+
+#figures for JW - NDN
+{
+P22H_WBC.hits.cpm.JWorder <- P22H_WBC.hits.cpm[,c(1:4,13:16,9:12,21:23,5:8,17:20)]
+colnames(P22H_WBC.hits.cpm.JWorder)
+sidecols.JWorder <- sideCols[c(1:4,13:16,9:12,21:23,5:8,17:20),]
+P22H_WBC.heatmapnames.2 <- P22H_WBC.heatmapnames[c(1:4,13:16,9:12,21:23,5:8,17:20)]
+
+heatmap.3(P22H_WBC.hits.cpm.JWorder, Rowv = T, Colv = F, dendrogram="none", trace="none", col=rev(col), scale="row",
+          main="Hits at FDR<0.05", ColSideColors= sidecols.JWorder, density.info= "none", labRow=NA,
+          labCol=P22H_WBC.heatmapnames.2,
+          margins = c(8, 8), ColSideColorsSize=1.8, cexCol=1.5,key=T)
+
+P22H_WBC.hits.cpm.JWorder2 <- P22H_WBC.hits.cpm[,c(1:4,9:12,5:8,13:16,21:23,17:20)]
+colnames(P22H_WBC.hits.cpm.JWorder2)
+sidecols.JWorder2 <- sideCols[c(1:4,9:12,5:8,13:16,21:23,17:20),]
+P22H_WBC.heatmapnames.3 <- P22H_WBC.heatmapnames[c(1:4,9:12,5:8,13:16,21:23,17:20)]
+
+heatmap.3(P22H_WBC.hits.cpm.JWorder2, Rowv = T, Colv = F, trace="none", dendrogram = "none", col=rev(col), scale="row",
+          main="Hits at FDR<0.05", ColSideColors= sidecols.JWorder2, density.info= "none",
+          labRow=NA,labCol=P22H_WBC.heatmapnames.3,
+          margins = c(8, 8), ColSideColorsSize=1.8, cexCol=1.5,key=T)
+}
+
+P22H_WBC.sample.frame <- (cbind(P22H_WBC.dge$samples$group, P22H_WBC.dge$samples$tissue))
+rownames(P22H_WBC.sample.frame) <- rownames(P22H_WBC.dge$samples)
+P22H_WBC.sample.frame[,1] <- c(rep("Con",4), rep("PAE",4), rep("PF",4), rep("Con",4),rep("PAE",4), rep("PF",3))
+P22H_WBC.sample.frame[,2] <- c(rep("HYP",12),rep("WBC",11))
+colnames(P22H_WBC.sample.frame) <- c("Treatment","Tissue")
+P22H_WBC.sample.frame
+
+P22H_WBC.hits.cpm[which(rownames(P22H_WBC.hits.cpm) == "chr2:243719416:243720233"),]
+
+P22H_WBC.hits.frame <- as.data.frame(cbind(P22H_WBC.sample.frame, t(P22H_WBC.hits.cpm)))
+P22H_WBC.hits.frame[,3:ncol(P22H_WBC.hits.frame)] <- as.numeric(t(cpm(P22H_WBC.fit$counts[as.character(P22H_WBC.hits$genes),], 
+                  log=F, lib.size=P22H_WBC.dge$samples$lib.size)))
+colnames(P22H_WBC.hits.frame)[1:2] <- c("Treatment","Tissue")
+str(P22H_WBC.hits.frame)
+head(P22H_WBC.hits.frame)
+
+colnames(P22H_WBC.hits.frame) <- gsub("-",":", colnames(P22H_WBC.hits.frame))
+
+
+ggplot(P22H_WBC.hits.frame, aes(Treatment,P22H_WBC.hits.frame[,4]))+
+  geom_violin(aes(fill=Tissue, colour = factor(Tissue)))+
+  geom_boxplot(fill="grey",width=0.1, outlier.shape=19, outlier.size=1)+
+  xlab("Group+Tissue")+
+  ylab("RPKM of peaks")+
+  ggtitle(colnames(neg.hits.frame)[4])+
+  theme_bw()+
+  theme(axis.title.y = element_text(size = rel(2.5), angle = 90, family="Arial"))+
+  theme(axis.title.x = element_text(size = rel(2.5), vjust=-0.5, family="Arial"))+
+  theme(axis.text.x = element_text(angle=0, hjust = 0.5, size=25, family="Arial"))+
+  theme(axis.text.y = element_text(hjust = 0.5, size=25, family="Arial"))+
+  theme(plot.title = element_text(lineheight=3, face="bold", color="black", size=25, family="Arial"))+
+  theme(plot.margin=unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+```
+
+*Up/Down methylated hits*
+```{r}
+# UP AND DOWN METHYLATED
+#negative
+neg.hits <- P22H_WBC.hits[P22H_WBC.hits$logFC.x<0,]
+neg.hits <- neg.hits[neg.hits$logFC.y<0,]
+dim(neg.hits)
+neg.hits.CPM <- cpm(P22H_WBC.fit$counts[neg.hits$genes,], 
+                    log=F, lib.size=P22H_WBC.dge$samples$lib.size)
+head(neg.hits.CPM)
+heatmap.3(neg.hits.CPM[], Rowv = F, Colv = T, trace="none", dendrogram = "col", col=col, 
+          main = "Hypomethylation in PAE animals versus controls\nFDR<0.05", labRow=NA, scale="row",
+          ColSideColors= sideCols, density.info= "histogram", margins = c(8, 8), ColSideColorsSize=1.8, KeyValueName="log2RPKM", cexCol=1.5,key=T)
+par(family="Arial")
+plot.new()
+legend("left", legend=c("HYP","WBC","", "C","PF","PAE"), 
+       fill=c("grey","black","white", "#232F66", "#347E35", "#A50A16"), 
+       border=FALSE, bty="n", y.intersp = 1, cex=1, x.intersp=0.35)
+
+
+neg.hits.frame <- as.data.frame(cbind(P22H_WBC.sample.frame, t(neg.hits.CPM)))
+neg.hits.frame[,3:ncol(neg.hits.frame)] <- as.numeric(t(cpm(P22H_WBC.fit$counts[neg.hits$genes,], log=F, lib.size=P22H_WBC.dge$samples$lib.size)))
+colnames(neg.hits.frame)[1:2] <- c("Treatment","Tissue")
+str(neg.hits.frame)
+head(neg.hits.frame)
+
+ggplot(neg.hits.frame, aes(Treatment,neg.hits.frame[,4]))+
+  geom_violin(aes(fill=Tissue, colour = factor(Tissue)))+
+  geom_boxplot(fill="grey",w=0.1, outlier.shape=19, outlier.size=1)+
+  xlab("Group+Tissue")+
+  ylab("RPKM of peaks")+
+  ggtitle(colnames(neg.hits.frame)[4])+
+  theme_bw()+
+  theme(axis.title.y = element_text(size = rel(2.5), angle = 90))+
+  theme(axis.title.x = element_text(size = rel(2.5), vjust=-0.5))+
+  theme(axis.text.x = element_text(angle=0, hjust = 0.5, size=25))+
+  theme(axis.text.y = element_text(hjust = 0.5, size=25))+
+  theme(plot.title = element_text(lineheight=3, face="bold", color="black", size=25))+
+  theme(plot.margin=unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+
+#positive
+pos.hits <- P22H_WBC.hits[P22H_WBC.hits$logFC.x>0,]
+pos.hits <- pos.hits[pos.hits$logFC.y>0,]
+dim(pos.hits)
+pos.hits.CPM <- cpm(P22H_WBC.fit$counts[pos.hits$genes,], 
+                    log=F, lib.size=P22H_WBC.dge$samples$lib.size)
+max(pos.hits.CPM)
+heatmap.3(pos.hits.CPM[-82,], Rowv = T, Colv = T, trace="none", dendrogram = "col", 
+          col=col, main = "Hypermethylation in PAE animals versus controls", labRow=NA, scale="row",
+          ColSideColors= sideCols, density.info= "histogram", margins = c(8, 8), 
+          ColSideColorsSize=1.8, KeyValueName="log2RPKM", cexCol=1.5,key=T)
+
+
+
+
+neg.chr <- c(length(grep("chr1:",neg.hits$genes)), length(grep("chr2:",neg.hits$genes)), length(grep("chr3:",neg.hits$genes)), length(grep("chr4:",neg.hits$genes)), 
+             length(grep("chr5:",neg.hits$genes)), length(grep("chr6:",neg.hits$genes)), length(grep("chr7:",neg.hits$genes)), length(grep("chr8:",neg.hits$genes)), 
+             length(grep("chr9:",neg.hits$genes)), length(grep("chr10:",neg.hits$genes)), length(grep("chr11:",neg.hits$genes)), length(grep("chr12:",neg.hits$genes)), 
+             length(grep("chr13:",neg.hits$genes)), length(grep("chr14:",neg.hits$genes)), length(grep("chr15:",neg.hits$genes)), length(grep("chr16:",neg.hits$genes)), 
+             length(grep("chr17:",neg.hits$genes)), length(grep("chr18:",neg.hits$genes)), length(grep("chr19:",neg.hits$genes)), length(grep("chr20:",neg.hits$genes)),
+             length(grep("chrX:",neg.hits$genes)), length(grep("chrUn",neg.hits$genes)))
+sum(neg.chr)
+pos.chr <- c(length(grep("chr1:",pos.hits$genes)), length(grep("chr2:",pos.hits$genes)), length(grep("chr3:",pos.hits$genes)), length(grep("chr4:",pos.hits$genes)), 
+             length(grep("chr5:",pos.hits$genes)), length(grep("chr6:",pos.hits$genes)), length(grep("chr7:",pos.hits$genes)), length(grep("chr8:",pos.hits$genes)), 
+             length(grep("chr9:",pos.hits$genes)), length(grep("chr10:",pos.hits$genes)), length(grep("chr11:",pos.hits$genes)), length(grep("chr12:",pos.hits$genes)), 
+             length(grep("chr13:",pos.hits$genes)), length(grep("chr14:",pos.hits$genes)), length(grep("chr15:",pos.hits$genes)), length(grep("chr16:",pos.hits$genes)), 
+             length(grep("chr17:",pos.hits$genes)), length(grep("chr18:",pos.hits$genes)), length(grep("chr19:",pos.hits$genes)), length(grep("chr20:",pos.hits$genes)),
+             length(grep("chrX:",pos.hits$genes)), length(grep("chrUn",pos.hits$genes)))
+sum(pos.chr)
+chrom.rep <- cbind(neg.chr, pos.chr)
+rownames(chrom.rep) <- c("1","2","3","4","5","6","7","8","9","10",
+                         "11","12","13","14","15","16","17","18","19","20","X","Un")
+par(cex.lab=2, mar=c(5,5,5,1), family="Arial")
+barplot2(t(chrom.rep), horiz = F, col=c("#BB7E31","#232F66"), ylab="Frequency", main="Distribution of DMRs Per Chromosome", ylim=c(0,50), cex.names=2, cex.axis=2, xlab="Chromosome")
+par(cex.lab=1)
+plot.new()
+legend("topright", legend=c("Hypomethylated (195)","Hypermethylated (105)"), fill=c("#BB7E31","#232F66"), 
+       border=FALSE, bty="n", y.intersp = 1, cex=1.5, x.intersp=0.35)
+par(mfrow=c(1,1))
+
+
+
+P22H_WBC.sample.frame <- (cbind(P22H_WBC.dge$samples$group, P22H_WBC.dge$samples$tissue))
+rownames(P22H_WBC.sample.frame) <- rownames(P22H_WBC.dge$samples)
+P22H_WBC.sample.frame[,1] <- c(rep("Con",4), rep("PAE",4), rep("PF",4), rep("Con",4),rep("PAE",4), rep("PF",3))
+P22H_WBC.sample.frame[,2] <- c(rep("HYP",12),rep("WBC",11))
+colnames(sample.frame) <- c("Treatment","Tissue")
+P22H_WBC.sample.frame
+
+neg.hits.frame <- as.data.frame(cbind(P22H_WBC.sample.frame, t(neg.hits.CPM)))
+neg.hits.frame[,3:ncol(neg.hits.frame)] <- as.numeric(t(cpm(P22H_WBC.fit$counts[neg.hits$genes,], log=F, lib.size=P22H_WBC.dge$samples$lib.size)))
+colnames(neg.hits.frame)[1:2] <- c("Treatment","Tissue")
+str(neg.hits.frame)
+head(neg.hits.frame)
+dim(neg.hits.frame)
+
+pos.hits.frame <- as.data.frame(cbind(P22H_WBC.sample.frame, t(pos.hits.CPM)))
+pos.hits.frame[,3:ncol(pos.hits.frame)] <- as.numeric(t(cpm(P22H_WBC.fit$counts[pos.hits$genes,], log=F, lib.size=P22H_WBC.dge$samples$lib.size)))
+colnames(pos.hits.frame)[1:2] <- c("Treatment","Tissue")
+str(pos.hits.frame)
+head(pos.hits.frame)
+dim(pos.hits.frame)
+
+{
+p1<- ggplot(neg.hits.frame, aes(Treatment,neg.hits.frame[,67]))+
+  geom_violin(aes(fill=Tissue, colour = factor(Tissue)))+
+  geom_boxplot(fill=c("#232F66","#A50A16","#347E35"),w=0.1, outlier.shape=19, outlier.size=1)+
+  xlab("Group")+
+  ylab("RPKM of peaks")+
+  ggtitle(colnames(neg.hits.frame)[67])+
+  theme_bw()+
+  theme(axis.title.y = element_text(size = rel(3), angle = 90))+
+  theme(axis.title.x = element_text(size = rel(0), vjust=-0.5))+
+  theme(axis.text.x = element_text(angle=0, hjust = 0.5, size=50))+
+  theme(axis.text.y = element_text(hjust = 0.5, size=30))+
+  theme(plot.title = element_text(lineheight=3, face="bold", color="black", size=30))+
+  theme(plot.margin=unit(c(0.5,0.5,0.5,0.5), "cm"))+
+  theme(legend.position="none")
+  #theme(legend.title = element_text(size=30)) + theme(legend.text=element_text(size=30))
+
+p2<- ggplot(pos.hits.frame, aes(Treatment,pos.hits.frame[,14]))+
+  geom_violin(aes(fill=Tissue, colour = factor(Tissue)))+
+  geom_boxplot(fill=c("#232F66","#A50A16","#347E35"),w=0.1, outlier.shape=19, outlier.size=1)+
+  xlab("")+
+  ylab("")+
+  ggtitle(colnames(pos.hits.frame)[14])+
+  ylim(1,4)+
+  theme_bw()+
+  theme(axis.title.y = element_text(size = rel(3), angle = 90))+
+  theme(axis.title.x = element_text(size = rel(0), vjust=-0.5))+
+  theme(axis.text.x = element_text(angle=0, hjust = 0.5, size=50))+
+  theme(axis.text.y = element_text(hjust = 0.5, size=30))+
+  theme(plot.title = element_text(lineheight=3, face="bold", color="black", size=30))+
+  theme(plot.margin=unit(c(0.5,0.5,0.5,0.5), "cm"))+
+  theme(legend.position="right")+
+  theme(legend.position="none")
+#  theme(legend.title = element_text(size=30)) + theme(legend.text=element_text(size=30))
+
+grid.arrange(p1,p2, ncol=2)
+}
+
+
+```
+
+*Annotation and permutation analysis of genomic regions*
+```{r}
+P22H_WBC.peaks <- as.matrix(P22H_WBC.hits[,1])
+colnames(P22H_WBC.peaks) <- "genes"
+head(P22H_WBC.peaks)
+P22H_WBC.peaks<- gsub("-",":",P22H_WBC.peaks)
+
+load("~/region_bams/P22_peaks_annot/P22.peakset.annotation.Rdata")
+P22H_WBC.peaks.annot <- merge(P22H_WBC.peaks, P22.annot, by="genes", all.x=T)
+write.table(P22H_WBC.peaks.annot, "~/BvB_annot_hits.txt", sep="\t", quote=F,row.names=F)
+dim(P22H_WBC.peaks.annot)
+                              
+                              pos.hits.2 <- pos.hits
+                              pos.hits.2$genes <- gsub("-",":", pos.hits.2$genes)
+                              P22H_WBC.peaks.annot.pos <- P22H_WBC.peaks.annot[which(P22H_WBC.peaks.annot$genes %in% pos.hits.2$genes),]
+                              dim(P22H_WBC.peaks.annot.pos)
+                              
+                              neg.hits.2 <- neg.hits
+                              neg.hits.2$genes <- gsub("-",":", neg.hits.2$genes)
+                              P22H_WBC.peaks.annot.neg <- P22H_WBC.peaks.annot[which(P22H_WBC.peaks.annot$genes %in% neg.hits.2$genes),]
+                              colnames(P22H_WBC.peaks.annot.neg)
+                              dim(P22H_WBC.peaks.annot.neg)
+                              
+                              p22.bootstrap_peaks_function.annot <-lapply(1:1000, function(x){
+                              print(x)
+                              set.seed(x)
+                              Hit_number.all <- nrow(P22H_WBC.peaks.annot)
+                              Hit_number.pos <- nrow(P22H_WBC.peaks.annot.pos)
+                              Hit_number.neg <- nrow(P22H_WBC.peaks.annot.neg)
+                              rnd_peak.all <- P22.annot$genes[sample(1:nrow(P22.annot),Hit_number.all)]
+                              rnd_peak.pos <- P22.annot$genes[sample(1:nrow(P22.annot),Hit_number.pos)]
+                              rnd_peak.neg <- P22.annot$genes[sample(1:nrow(P22.annot),Hit_number.neg)]
+                              annot_rnd.all <- P22.annot[which(P22.annot$genes%in%rnd_peak.all),]
+                              annot_rnd.pos <- P22.annot[which(P22.annot$genes%in%rnd_peak.pos),]
+                              annot_rnd.neg <- P22.annot[which(P22.annot$genes%in%rnd_peak.neg),]
+                              colnames(annot_rnd.all)
+                              annot_features.all  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.all$prom200))),
+                              length(which(!is.na(annot_rnd.all$prom1500))),
+                              length(which(!is.na(annot_rnd.all$cpg))),
+                              length(which(!is.na(annot_rnd.all$exons) & is.na(annot_rnd.all$introns))),
+                              length(which(!is.na(annot_rnd.all$introns) & is.na(annot_rnd.all$exons))),
+                              length(which(!is.na(annot_rnd.all$exons) & !is.na(annot_rnd.all$introns))),
+                              length(which(is.na(annot_rnd.all$exons) & is.na(annot_rnd.all$introns) &
+                              is.na(annot_rnd.all$prom200) & is.na(annot_rnd.all$prom1500)
+                              & is.na(annot_rnd.all$cpg) &is.na(annot_rnd.all$UTR.5)
+                              &is.na(annot_rnd.all$UTR.3))),
+                              length(which(!is.na(annot_rnd.all$UTR.5))),
+                              length(which(!is.na(annot_rnd.all$UTR.3)))
+                              )))
+                              annot_features.pos  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.pos$prom200))),
+                              length(which(!is.na(annot_rnd.pos$prom1500))),
+                              length(which(!is.na(annot_rnd.pos$cpg))),
+                              length(which(!is.na(annot_rnd.pos$exons) & is.na(annot_rnd.pos$introns))),
+                              length(which(!is.na(annot_rnd.pos$introns) & is.na(annot_rnd.pos$exons))),
+                              length(which(!is.na(annot_rnd.pos$exons) & !is.na(annot_rnd.pos$introns))),
+                              length(which(is.na(annot_rnd.pos$exons) & is.na(annot_rnd.pos$introns) &
+                              is.na(annot_rnd.pos$prom200) & is.na(annot_rnd.pos$prom1500)
+                              & is.na(annot_rnd.pos$cpg) &is.na(annot_rnd.pos$UTR.5)
+                              &is.na(annot_rnd.pos$UTR.3))),
+                              length(which(!is.na(annot_rnd.pos$UTR.5))),
+                              length(which(!is.na(annot_rnd.pos$UTR.3)))
+                              )))
+                              annot_features.neg  <- annot_features.neg  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.neg$prom200))),
+                              length(which(!is.na(annot_rnd.neg$prom1500))),
+                              length(which(!is.na(annot_rnd.neg$cpg))),
+                              length(which(!is.na(annot_rnd.neg$exons) & is.na(annot_rnd.neg$introns))),
+                              length(which(!is.na(annot_rnd.neg$introns) & is.na(annot_rnd.neg$exons))),
+                              length(which(!is.na(annot_rnd.neg$exons) & !is.na(annot_rnd.neg$introns))),
+                              length(which(is.na(annot_rnd.neg$exons) & is.na(annot_rnd.neg$introns) &
+                              is.na(annot_rnd.neg$prom200) & is.na(annot_rnd.neg$prom1500)
+                              & is.na(annot_rnd.neg$cpg) &is.na(annot_rnd.neg$UTR.5)
+                              &is.na(annot_rnd.neg$UTR.3))),
+                              length(which(!is.na(annot_rnd.neg$UTR.5))),
+                              length(which(!is.na(annot_rnd.neg$UTR.3)))
+                              )))
+                              a <- data.frame(rbind(annot_features.all, annot_features.pos, annot_features.neg), type = c("all","pos","neg"))
+                              colnames(a) <- c("Prom200","Prom1500","CGI", "Exons","Introns","Exon/Intron","Intergenic","5' UTR","3'UTR","type") 
+                              a
+                              })
+                              
+                              p22.bootstrap.annot <- do.call(rbind,p22.bootstrap_peaks_function.annot)
+                              dim(p22.bootstrap.annot)
+                              p22.bootstrap.annot.all <- p22.bootstrap.annot[which(p22.bootstrap.annot$type =="all"),]
+                              p22.bootstrap.annot.pos <- p22.bootstrap.annot[which(p22.bootstrap.annot$type =="pos"),]
+                              p22.bootstrap.annot.neg <- p22.bootstrap.annot[which(p22.bootstrap.annot$type =="neg"),]
+                              
+                              
+                              p22.bootstrap.annot.mean.all <- colMeans(p22.bootstrap.annot.all[,1:9])
+                              p22.bootstrap.annot.mean.pos <- colMeans(p22.bootstrap.annot.pos[,1:9])
+                              p22.bootstrap.annot.mean.neg <- colMeans(p22.bootstrap.annot.neg[,1:9])
+                              
+                              p22.bootstrap.annot.sd.all <- apply(p22.bootstrap.annot.all[,1:9], 2, sd)
+                              p22.bootstrap.annot.sd.pos <- apply(p22.bootstrap.annot.pos[,1:9], 2, sd)
+                              p22.bootstrap.annot.sd.neg <- apply(p22.bootstrap.annot.neg[,1:9], 2, sd)
+                              
+                              p22.bootstrap.annot.frame <- data.frame(Probe_Count=as.numeric(p22.bootstrap.annot.mean.all),
+                              Probe_count_SD=as.numeric(p22.bootstrap.annot.sd.all),
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "All")
+                              p22.bootstrap.annot.frame <- rbind(p22.bootstrap.annot.frame, 
+                              data.frame(Probe_Count=as.numeric(p22.bootstrap.annot.mean.pos),
+                              Probe_count_SD=as.numeric(p22.bootstrap.annot.sd.pos),
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "Hypermethylated"))
+                              p22.bootstrap.annot.frame <- rbind(p22.bootstrap.annot.frame, 
+                              data.frame(Probe_Count=as.numeric(p22.bootstrap.annot.mean.neg),
+                              Probe_count_SD=as.numeric(p22.bootstrap.annot.sd.neg),
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "Hypomethylated"))
+                              p22.bootstrap.annot.frame$Data <- "Random"
+                              p22.bootstrap.annot.frame
+                              
+                              p22.features <- data.frame(Probe_Count= rbind(length(which(!is.na(P22H_WBC.peaks.annot$prom200))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$prom1500))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$cpg))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$exons) & is.na(P22H_WBC.peaks.annot$introns))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$introns) & is.na(P22H_WBC.peaks.annot$exons))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$exons) & !is.na(P22H_WBC.peaks.annot$introns))),
+                              length(which(is.na(P22H_WBC.peaks.annot$exons) & is.na(P22H_WBC.peaks.annot$introns) &
+                              is.na(P22H_WBC.peaks.annot$prom200) & is.na(P22H_WBC.peaks.annot$prom1500)
+                              &is.na(P22H_WBC.peaks.annot$UTR.5)
+                              &is.na(P22H_WBC.peaks.annot$UTR.3))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$UTR.5))),
+                              length(which(!is.na(P22H_WBC.peaks.annot$UTR.3))) ), 
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "All")
+                              
+                              p22.features <- rbind(p22.features, 
+                              data.frame(Probe_Count= rbind(length(which(!is.na(P22H_WBC.peaks.annot.pos$prom200))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$prom1500))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$cpg))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$exons) & is.na(P22H_WBC.peaks.annot.pos$introns))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$introns) & is.na(P22H_WBC.peaks.annot.pos$exons))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$exons) & !is.na(P22H_WBC.peaks.annot.pos$introns))),
+                              length(which(is.na(P22H_WBC.peaks.annot.pos$exons) & is.na(P22H_WBC.peaks.annot.pos$introns) &
+                              is.na(P22H_WBC.peaks.annot.pos$prom200) & is.na(P22H_WBC.peaks.annot.pos$prom1500)
+                               &is.na(P22H_WBC.peaks.annot.pos$UTR.5)
+                              &is.na(P22H_WBC.peaks.annot.pos$UTR.3))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$UTR.5))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.pos$UTR.3)))  ), 
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "Hypermethylated"))
+                              
+                              p22.features <- rbind(p22.features, 
+                              data.frame(Probe_Count= rbind(length(which(!is.na(P22H_WBC.peaks.annot.neg$prom200))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$prom1500))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$cpg))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$exons) & is.na(P22H_WBC.peaks.annot.neg$introns))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$introns) & is.na(P22H_WBC.peaks.annot.neg$exons))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$exons) & !is.na(P22H_WBC.peaks.annot.neg$introns))),
+                              length(which(is.na(P22H_WBC.peaks.annot.neg$exons) & is.na(P22H_WBC.peaks.annot.neg$introns) &
+                              is.na(P22H_WBC.peaks.annot.neg$prom200) & is.na(P22H_WBC.peaks.annot.neg$prom1500)
+                               &is.na(P22H_WBC.peaks.annot.neg$UTR.5)
+                              &is.na(P22H_WBC.peaks.annot.neg$UTR.3))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$UTR.5))),
+                              length(which(!is.na(P22H_WBC.peaks.annot.neg$UTR.3)))  ), 
+                              Feature=colnames(p22.bootstrap.annot[1:9]), type = "Hypomethylated"))
+                              p22.features$Data <- "DMRs"
+                              p22.features$Probe_count_SD <- 0
+                              p22.features <- p22.features[,match(colnames(p22.bootstrap.annot.frame),colnames(p22.features))]
+                              
+                              p22.annot.plot <- rbind(p22.features, p22.bootstrap.annot.frame)
+                              
+                              
+ggplot(p22.annot.plot, aes(Feature, Probe_Count, fill=Data, group=Data))+
+                              geom_bar(position=position_dodge(width=0.9),stat="identity", 
+                                       color="black")+theme_bw()+
+                              facet_wrap(~type)+
+                              geom_errorbar(aes(ymax = Probe_Count + Probe_count_SD, ymin=Probe_Count - 
+                                                  Probe_count_SD),
+                              width=0.25,position=position_dodge(width=0.9))+
+                              scale_fill_manual(values= c("#82AAB6","#CC9750"))+
+                              ylab("Number of DMRs")+
+                              ggtitle("Genomic feature enrichment profile")+
+                              theme(
+                              axis.text.y = element_text(size=25, color="black"),
+                              axis.text.x = element_text(size=20, color="black", angle = 45, vjust =1, 
+                                                         hjust = 1),
+                              axis.title.y = element_text(size=30, color="black"),
+                              axis.title.x = element_text(size=30, color="black"),
+                              plot.title = element_text(face="bold", size=25),
+                              legend.text = element_text(size=18),
+                              legend.title = element_text(colour="white"),
+                              strip.text = element_text(size = 25, face = "bold"))
+                              
+                              
+                              
+length(which(p22.bootstrap.annot.all$Prom200 <= p22.features$Probe_Count[1]))/1000 #0.217
+length(which(p22.bootstrap.annot.all$Prom1500 <= p22.features$Probe_Count[2]))/1000 #0.096
+length(which(p22.bootstrap.annot.all$CGI >= p22.features$Probe_Count[3]))/1000 #0.32
+length(which(p22.bootstrap.annot.all$Exons >= p22.features$Probe_Count[4]))/1000 #0.758
+length(which(p22.bootstrap.annot.all$Introns <= p22.features$Probe_Count[5]))/1000 #0.07
+length(which(p22.bootstrap.annot.all[,6] <= p22.features$Probe_Count[6]))/1000 #0.012
+length(which(p22.bootstrap.annot.all$Intergenic >= p22.features$Probe_Count[7]))/1000 #0.004
+length(which(p22.bootstrap.annot.all[,8] <= p22.features$Probe_Count[8]))/1000 #0.339
+length(which(p22.bootstrap.annot.all[,9] <= p22.features$Probe_Count[9]))/1000 #0.466
+                              
+length(which(p22.bootstrap.annot.pos$Prom200 <= p22.features$Probe_Count[1+9]))/1000 #0.6
+length(which(p22.bootstrap.annot.pos$Prom1500 <= p22.features$Probe_Count[2+9]))/1000 #0.256
+length(which(p22.bootstrap.annot.pos$CGI <= p22.features$Probe_Count[3+9]))/1000 #0.511
+length(which(p22.bootstrap.annot.pos$Exons >= p22.features$Probe_Count[4+9]))/1000 #0.608
+length(which(p22.bootstrap.annot.pos$Introns <= p22.features$Probe_Count[5+9]))/1000 #0.111
+length(which(p22.bootstrap.annot.pos[,6] <= p22.features$Probe_Count[6+9]))/1000 #0.195
+length(which(p22.bootstrap.annot.pos$Intergenic >= p22.features$Probe_Count[7+9]))/1000 #0.018
+length(which(p22.bootstrap.annot.pos[,8] >= p22.features$Probe_Count[8+9]))/1000 #0.546
+length(which(p22.bootstrap.annot.pos[,9] >= p22.features$Probe_Count[9+9]))/1000 #0.517
+                              
+length(which(p22.bootstrap.annot.neg$Prom200 <= p22.features$Probe_Count[1+18]))/1000 #0.361
+length(which(p22.bootstrap.annot.neg$Prom1500 <= p22.features$Probe_Count[2+18]))/1000 #0.246
+length(which(p22.bootstrap.annot.neg$CGI >= p22.features$Probe_Count[3+18]))/1000 #0.127
+length(which(p22.bootstrap.annot.neg$Exons <= p22.features$Probe_Count[4+18]))/1000 #0.463
+length(which(p22.bootstrap.annot.neg$Introns <= p22.features$Probe_Count[5+18]))/1000 #0.217
+length(which(p22.bootstrap.annot.neg[,6] <= p22.features$Probe_Count[6+18]))/1000 #0.034
+length(which(p22.bootstrap.annot.neg$Intergenic >= p22.features$Probe_Count[7+18]))/1000 #0.011
+length(which(p22.bootstrap.annot.neg[,8] <= p22.features$Probe_Count[8+18]))/1000 #0.213
+length(which(p22.bootstrap.annot.neg[,9] <= p22.features$Probe_Count[9+18]))/1000 #0.347
+
+```
+
+*Getting sequences for top hits*
+```{r}
+BvB.hits.info <- peaks.info[P22H_WBC.hits$gene,]
+head(BvB.hits.info)
+unique(BvB.hits.info$chr) # these will be used to retain the relevant chromosomes from rn6
+
+rn6 <- list.files("/home/alussier/Rnor6/fasta", full=T)
+rn6.2 <- rn6[-c(c(grep("random", rn6)), c((grep("chrun",rn6))), c((grep("chrm",rn6))),c((grep("chry",rn6))))]
+rn6.2 <- rn6.2[-22]
+rn6.2 <- c(rn6.2, rn6[c(grep("chrun_kl568295v1",rn6), grep("chrun_kl568307v1",rn6))])
+
+rn6.2 <- lapply(rn6.2, read.fasta)
+rn6.2 <- lapply(rn6.2, getSequence)
+names(rn6.2) <- c("10","11","12","13","14","15","16","17","18","19",
+               "1","20","2","3","4","5","6","7","8","9","X","Un_KL568295v1","Un_KL568307v1")
+rn6.2 <-rn6.2[order(names(rn6.2))] 
+names(rn6.2)
+str(rn6.2)
+
+
+BvB.hits.info <- peaks.info[P22H_WBC.hits$gene,]
+head(BvB.hits.info)
+unique(BvB.hits.info$chr)
+
+BvB.hits.seqs <- lapply(1:nrow(hits.info), function(x){
+          paste(rn6.2[[BvB.hits.info[x,1]]][[1]][c(as.numeric(BvB.hits.info[x,2]):as.numeric(BvB.hits.info[x,3]))],collapse='')
+          #rn6.2[[1]][[1]][x:y]
+  })
+names(BvB.hits.seqs) <- row.names(BvB.hits.info)
+head(BvB.hits.seqs)
+BvB.hits.seqs$`chr2:243719416-243720233`
+
+write.fasta(BvB.hits.seqs, names=names(BvB.hits.seqs), file="~/BvB.hits.seqs.fa")
+## REMOVE rn6.2 from workspace, as it is 20.7 GB in size! ###
+
+(str_count(BvB.hits.seqs, pattern=c('cg')))
+boxplot((str_count(BvB.hits.seqs, pattern='cg')/str_count(BvB.hits.seqs)),
+        (str_count(BvB.hits.seqs,pattern='gc')/str_count(BvB.hits.seqs)), names=c("CG ratio", "GC ratio"), ylab="Pattern/total")
+boxplot(str_count(BvB.hits.seqs, pattern='gc')/str_count(BvB.hits.seqs))
+min(str_count(BvB.hits.seqs, pattern='cg'))
+
+```
+
+*TFBS analysis with PWMEnrich*
+```{r}
+bvb.size <- as.numeric(strsplit2(strsplit2(P22H_WBC.hits$genes,":")[,2],"-")[,2]) - as.numeric(strsplit2(strsplit2(P22H_WBC.hits$genes,":")[,2],"-")[,1])
+
+bvb.motif <- readDNAStringSet(file = "~/workspace/EEL-130403/BvB.hits.seqs.fa")
+data(PWMLogn.mm9.MotifDb.Mmus)
+bvb.enrich <- motifEnrichment(bvb.motif, PWMLogn.mm9.MotifDb.Mmus)
+bvb.report <- groupReport(bvb.enrich)
+bvb.report.2 = as.data.frame(groupReport(bvb.enrich))
+bvb.report.2$FDR <- p.adjust(bvb.report.2$p.value, method = "BH")
+bvb.report.adj <- bvb.report.2[which(bvb.report.2$FDR <=0.05),]
+dim(bvb.report.adj)
+
+
+
+plot(bvb.report[bvb.report$p.value < 0.05][1:20], fontsize=7, id.fontsize=6)
+report.test[grep("nr3c1", report.test$target, ignore.case = T),]
+report.test$target
+
+#permutations
+load("~/region_bams/P22_peaks_annot/P22.peakset.sequences.Rdata")
+p22.stringset <- DNAStringSet(x = p22.sequences$seq)
+length(p22.stringset)
+perm.list <- mclapply(1:100, function(x){
+  set.seed(x)
+  rand.seqs <- p22.stringset[sample(1:length(p22.stringset), 299)]
+  rand.enrich <- motifEnrichment(rand.seqs, PWMLogn.mm9.MotifDb.Mmus)
+  rand.report <- groupReport(rand.enrich)
+  rand.data <- as.data.frame(rand.report)
+  rand.data$FDR <- p.adjust(rand.data$p.value, method = "BH")
+  rand.sig <- rand.data[which(rand.data$p.value <= 0.05),]
+  rand.sig$rank <- paste(rand.sig$rank, "_perm", x, sep="")
+  rand.sig
+}, mc.cores = 6)
+
+perm.rand.tfbs <- do.call(rbind, perm.list)
+perm.rand.tfbs.sig <- perm.rand.tfbs[which(perm.rand.tfbs$FDR <= 0.05),]
+dim(perm.rand.tfbs.sig)
+barplot(table(perm.rand.tfbs.sig$target))
+barplot(table(bvb.report.adj$target))
+
+
+bvb.report.adj[-which(bvb.report.adj$target %in% names(which(table(perm.rand.tfbs.sig$target)>100))),]
+
+
+bvb.score <- lapply(1:nrow(bvb.report.adj), function(x){
+  a <- perm.rand.tfbs.sig[which(perm.rand.tfbs.sig$id == bvb.report.adj$id[x]),]
+  b <- length(which(a$raw.score > bvb.report.adj$raw.score[x]))
+  data.frame(tfbs =bvb.report.adj$target[x], id=bvb.report.adj$id[x],
+             score = bvb.report.adj$raw.score[x], avg.score = mean(a$raw.score), p.val = b/100)
+  })
+bvb.score.2 <- do.call(rbind, bvb.score)
+bvb.score.2$FDR <- p.adjust(bvb.score.2$p.val, method="BH")
+bvb.score.2[which(bvb.score.2$p.val <0.05),]
+
+
+
+bvb.prop <- lapply(1:nrow(bvb.report.adj), function(x){
+  a <- perm.rand.tfbs.sig[which(perm.rand.tfbs.sig$id == bvb.report.adj$id[x]),]
+  b <- length(which(a$top.motif.prop >= bvb.report.adj$top.motif.prop[x]))
+  sem <- sd(a$top.motif.prop)/sqrt(length(a$top.motif.prop))
+  data.frame(tfbs =bvb.report.adj$target[x], id=bvb.report.adj$id[x], 
+             Hits = bvb.report.adj$top.motif.prop[x],Random = mean(a$top.motif.prop), sem.bvb=NA, sem.perm = sem, p.val = b/100)
+  })
+bvb.prop.2 <- do.call(rbind, bvb.prop)
+bvb.prop.2$FDR <- p.adjust(bvb.prop.2$p.val, method="BH")
+bvb.prop.sig <- bvb.prop.2[which(bvb.prop.2$p.val <= 0.05 & bvb.prop.2$Random > (15/300)),]
+bvb.prop.sig$tfbs <- toupper(bvb.prop.sig$tfbs)
+
+
+
+bvb.prop.melt <- melt(bvb.prop.sig[-which(duplicated(bvb.prop.sig$tfbs)),c(1,3,4)])
+head(bvb.prop.melt)
+
+bvb.sem.melt <- melt(bvb.prop.sig[-which(duplicated(bvb.prop.sig$tfbs)),c(1,5,6)])
+bvb.prop.melt$ymax <- bvb.sem.melt$value + bvb.prop.melt$value
+bvb.prop.melt$ymin <- bvb.prop.melt$value - bvb.sem.melt$value
+
+bvb.prop.sig.2 <- bvb.prop.sig[-which(duplicated(bvb.prop.sig$tfbs)),]
+bvb.prop.sig.2$p.val[which(bvb.prop.sig.2$p.val >0)] <- "*"
+bvb.prop.sig.2$p.val[which(bvb.prop.sig.2$p.val ==0)] <- "**"
+bvb.prop.sig.2$pos <- unlist(lapply(1:nrow(bvb.prop.sig.2), function(x){
+  max(c(bvb.prop.sig.2$Hits[x], bvb.prop.sig.2$Random[x]))} ))
+
+ggplot(data = bvb.prop.melt, aes(x=tfbs, y = value, group= variable))+
+  geom_bar(stat="identity", position = "dodge", aes(fill = as.factor(variable)))+
+  theme_cowplot()+
+  ylab("Fraction of DMRs")+
+  xlab("TFBS")+
+  geom_text(data = bvb.prop.sig.2, aes(x=tfbs, y = pos+0.01, label = p.val, group = tfbs), size = 8)+
+  geom_errorbar(aes(ymax=ymax, ymin=ymin), position = "dodge")+
+  scale_fill_manual(values= c("#82AAB6","#CC9750"))+
+  ggtitle("TFBS enrichment profile")+
+  theme(
+    axis.text.y = element_text(size=25, color="black"),
+    axis.text.x = element_text(size=20, color="black", angle = 45, vjust =1, hjust = 1),
+    axis.title.y = element_text(size=30, color="black"),
+    axis.title.x = element_text(size=30, color="black"),
+    plot.title = element_text(face="bold", size=25),
+    legend.text = element_text(size=18),
+    legend.title = element_text(colour="white"),
+    strip.text = element_text(size = 25, face = "bold"))
+
+ggdraw(switch_axis_position(p, 'y'))
+
+
+
+
+
+full.data.list <- lapply(1, function(x){
+  print(x)
+  all.enrich <- motifEnrichment(p22.stringset, PWMLogn.mm9.MotifDb.Mmus)
+  all.report <= groupReport(all.enrich)
+  all.data <- as.data.frame(rand.report)
+  all.data$FDR <- p.adjust(all.data$p.value, method = "BH")
+  all.sig <- all.data[which(all.data$FDR <= 0.05),]
+  all.sig
+})
+
+
+perm.tfbs <- do.call(rbind, perm.list)
+perm.tfbs
+
+```
