@@ -10,10 +10,10 @@ alcohol spectrum disorder. Epigenetics Chromatin. 2016 Jun 29;9:25. *Authors con
   
   • Source: https://epigeneticsandchromatin.biomedcentral.com/articles/10.1186/s13072-016-0074-4
   
-  • Supplementary materials 
+  • [Supplementary materials](/DNAm_signature_FASD/Supplementary_materials)
   
   
-## B. Scripts
+## B. [Scripts](/DNAm_signature_FASD/Scripts)
   • Results generation
   
   • DMRcate analysis
