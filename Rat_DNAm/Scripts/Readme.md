@@ -1,5 +1,5 @@
 
-# Scripts
+# Scripts for the rat DNA methylation manuscript
 
 #### • Preprocessing pipeline
     1. Filter bam files using samtools 
