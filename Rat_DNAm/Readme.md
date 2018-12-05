@@ -24,7 +24,7 @@
     
   • Other
 
-## C. Summary of project
+## C. Project summary
 **Background**: Prenatal alcohol exposure (PAE) can alter the development of neurobiological systems, leading to lasting neuroendocrine, neuroimmune, and neurobehavioral deficits. Although the etiology of this reprogramming remains unknown, emerging evidence suggests DNA methylation as a potential mediator and biomarker for the effects of PAE due to its responsiveness to environmental cues and relative stability over time. Here, we utilized a rat model of PAE to examine the DNA methylation profiles of rat hypothalami and leukocytes at four time points during early development to assess the genome-wide impact of PAE on the epigenome and identify potential biomarkers of PAE. 
 
 **Methods**: Our model of PAE resulted in blood alcohol levels of ~80–150 mg/dl throughout the equivalent of the first two trimesters of human pregnancy. Hypothalami were analyzed on postnatal days (P) 1, 8, 15, 22 and leukocytes at P22 to compare central and peripheral markers. Genome-wide DNA methylation analysis was performed by methylated DNA immunoprecipitation followed by next-generation sequencing.
