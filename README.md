@@ -1,13 +1,13 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. 
 
-## [DNA methylation signature of human FASD (NeuroDevNet)](/DNAm_signature_FASD)
+## [DNA methylation signature of human FASD (NeuroDevNet cohort)](/DNAm_signature_FASD)
     A. Manuscript
     B. Scripts
         • Results generation
         • DMRcate analysis
     C. Project summary
   
-## [DNA methylation as a predictor of FASD (Kid's Brain Health Network)](/DNAm_predictor_FASD)
+## [DNA methylation as a predictor of FASD (Kid's Brain Health Network cohort)](/DNAm_predictor_FASD)
     A. Manuscript
     B. Scripts
        • Preprocessing and normalization
