@@ -11,9 +11,9 @@
   
   • Predictor website: https://fasdpredictor.shinyapps.io/fasdpredictorapp/
   
-  • Supplementary materials
+  • [Supplementary materials](/DNAm_predictor_FASD/Supplementary_materials)
 
-## [B. Scripts](/DNAm_predictor_FASD/Scripts)
+## B. [Scripts](/DNAm_predictor_FASD/Scripts)
    • Preprocessing and normalization
    
    • Replication analysis
