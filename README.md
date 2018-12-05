@@ -1,4 +1,4 @@
-# alussier_scripts
+#### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. 
 
 ## 1. [DNA methylation signature of human FASD (NeuroDevNet)](/DNAm_signature_FASD)
     A. Manuscript
@@ -13,7 +13,7 @@
        • Preprocessing and normalization
        • Analysis
        • Predictor
-       • Website source code
+       • Website source code 
     C. Project summary
 
 ## 3. [Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues (Rat DNAm)](/Rat_DNAm)
@@ -48,3 +48,10 @@
         • Crowdsourced genealogies and genomes. Science, 2018.
     B. Scripts
         • Forthcoming
+
+## 6. Contact information
+        Alexandre Lussier, PhD
+        Postdoctoral Associate, Department of Biological Statistics and Computational Biology
+        Cornell University
+        aal89[at]cornell.edu
+[Google Scholar](https://scholar.google.ca/citations?user=l1MwrMkAAAAJ&hl=en)
