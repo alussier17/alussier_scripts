@@ -1,5 +1,6 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. 
 
+# 1. Human epigenetics projects - FASD
 ## [DNA methylation signature of human FASD (NeuroDevNet cohort)](/DNAm_signature_FASD)
     A. Manuscript
     B. Scripts
@@ -16,6 +17,7 @@
        • Website source code 
     C. Project summary
 
+# 2. Rat Model of Prenatal Alcohol Exposure
 ## [Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues (Rat DNAm)](/Rat_DNAm)
     A. Manuscript
     B. Scripts
@@ -39,7 +41,7 @@
     C. Data in Brief manuscript
     D. Project summary
     
-## [Other](/Other)
+# 3. [Other manuscripts](/Other)
     A. Manuscripts
         • Molecular pathways underpinning ethanol-induced neurodegeneration. Frontiers in Genetics, 2014.
         • Epigenetics studies of fetal alcohol spectrum disorder: where are we now? Epigenomics, 2016.
@@ -49,7 +51,7 @@
     B. Scripts
         • Forthcoming
 
-## Contact information
+# 4. Contact information
         Alexandre Lussier, PhD
         Postdoctoral Associate, Department of Biological Statistics and Computational Biology
         Cornell University
