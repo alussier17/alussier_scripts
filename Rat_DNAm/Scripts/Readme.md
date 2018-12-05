@@ -58,7 +58,7 @@
     1. annotation.R
         • Custom annotations the developmental and tissue-concordant datasets (P22). 
         • Genomic features, DNA sequences, and CG content.
-    2. cell_type_prediction.Rmd
+    2. cell_type_correction.Rmd
         • Moderate cell type correction using RNA-seq data from Cahoy et al., 2008
         • Used in the developmental analysis
 
