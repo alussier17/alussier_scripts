@@ -49,6 +49,7 @@
         • Epigenetic analysis of human postmortem brain tissue. Handbook of Clinical Neurology, 2018
         • Crowdsourced genealogies and genomes. Science, 2018.
     B. Scripts
+        • Reduced representation bisulfite sequencing alignment
         • Forthcoming
 
 # 4. Contact information
