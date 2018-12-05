@@ -13,7 +13,9 @@
   
 
 ## B. Scripts
-  • Analysis
+  • Simplified analysis
+  • HPC analysis
+  • PFC analysis
 
 ## C. Data in Brief
   • Citation: Lussier AA, Stepien KA, Weinberg J, Kobor MS. Prenatal alcohol exposure alters gene expression in the rat brain: Experimental design and bioinformatic analysis of microarray data. Data Brief. 2015 Jun 9;4:239-52.
