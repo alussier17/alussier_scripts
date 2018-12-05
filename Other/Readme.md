@@ -15,5 +15,5 @@
 
 
 ## b. Scripts
-  •
-  •
+  • Reduce representation bisulfite sequencing alignments
+  • More to come
