@@ -1,5 +1,3 @@
-#### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
-
 # 1. Human epigenetics projects - FASD
 ## [DNA methylation signature of human FASD (NeuroDevNet cohort)](/DNAm_signature_FASD)
     A. Manuscript
