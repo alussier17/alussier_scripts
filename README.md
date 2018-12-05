@@ -8,8 +8,8 @@
     C. Project summary
   
 ## [DNA methylation as a predictor of FASD (Kid's Brain Health Network)](/DNAm_predictor_FASD)
-    a. Manuscript
-    b. Scripts
+    A. Manuscript
+    B. Scripts
        • Preprocessing and normalization
        • Analysis
        • Predictor
