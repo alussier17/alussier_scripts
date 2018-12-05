@@ -13,7 +13,7 @@
   
   • Supplementary materials
 
-## B. Scripts
+## [B. Scripts](/DNAm_predictor_FASD/Scripts)
    • Preprocessing and normalization
    
    • Replication analysis
