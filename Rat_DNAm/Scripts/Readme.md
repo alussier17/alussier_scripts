@@ -1,7 +1,7 @@
 
 # Scripts for the rat DNA methylation manuscript
 
-#### • Preprocessing pipeline
+#### [• Preprocessing pipeline](/Rat_DNAm/Scripts/Preprocessing)
     1. Filter bam files using samtools 
         • samtools_filter_newdata.py
         • Removes duplicate reads, unpaired reads, and reads with a minimum quality score below 10.
@@ -16,7 +16,7 @@
         • macs2 callpeaks –f BAMPE –m 5 50 –bw 300 –g 2.9e9 –q 0.05
         • Split into three scripts to parallelize (one for each sequencing pool)
 
-#### • Analysis - Developmental profile of the hypothalamus
+#### [• Analysis - Developmental profile of the hypothalamus](/Rat_DNAm/Scripts/Developmental_profile)
     1. Generate peaksets for analysis in R
         • Peaksets_developmental.Rmd
             • Creates a peakset for all hypothalamus samples across 4 ages (P1,P8,P15,P22)
@@ -35,7 +35,7 @@
             • ermineJ table generation
             • Publication figures
 
-#### • Analysis - Tissue-concordant analysis of hypothalamus and WBC
+#### [• Analysis - Tissue-concordant analysis of hypothalamus and WBC](/Rat_DNAm/Scripts/Tissue_concordant)
     1. Generate peaksets for analysis in R
         • Peaksets_tissue_concordant.Rmd
             • Creates a peakset for P22 samples (WBC and hypothalamus)
