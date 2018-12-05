@@ -1,0 +1,809 @@
+---
+title: "Analysis_developmental"
+output: html_document
+---
+*LOADING METADATA*
+```{r}
+# METADATA#
+# for all hypothalamus samples
+metadata <- read.csv("/home/alussier/Metadata_updated.csv",header=T)
+meta.all <- metadata[1:48,-61:-62,]
+meta.all <- meta.all[,c(-1,-6,-24,-25)]
+colnames(meta.all)
+write.table(meta.all, "~/metadata.all.hyp.txt", sep="\t", row.names=F, quote=F)
+str(meta.all)
+dim(meta.all)
+meta.all$Age <- as.numeric(gsub(0,1, meta.all$Age))
+meta.all$Tissue <- as.factor(meta.all$Tissue)
+meta.all$Breeding <- as.factor(meta.all$Breeding)
+meta.all$Extraction.round <- as.factor(meta.all$Extraction.round)
+meta.all$meDIP.round <- as.factor(meta.all$meDIP.round)
+  
+meta.all$Dam.final.weight..g.<- as.numeric(meta.all$Dam.final.weight..g.)
+meta.all$Litter.Size....of.pups.<-as.numeric(meta.all$Litter.Size....of.pups.)
+meta.all$meDIP.fold.enrichment.ratio <-as.numeric(meta.all$meDIP.fold.enrichment.ratio)
+head(meta.all)
+  
+meta_categorical<- (meta.all[,c(1,2,4,18,19)])  # input column numbers in meta that contain categorical variables
+meta_continuous<- (meta.all[,c(9:13,15:17,20,21)]) # input column numbers in meta that contain continuous variables
+str(meta_categorical)
+str(meta_continuous)
+
+install.packages("snowfall")
+library(snowfall)
+
+```
+
+*Cell type proportions*
+```{r}
+# Expression data obtained from Cahoy et al. 2008 - http://www.jneurosci.org/content/28/1/264.full
+# 
+
+setwd("~/cell_type_prediction/")
+neuron.set <- read.csv("~/cell_type_prediction/neuron_genes_cahoy08.csv")
+head(neuron.set)
+dim(neuron.set)
+plot(density(neuron.set$Fold_enriched_neurons))
+length(which(neuron.set$Fold_enriched_neurons > 15)) #178 genes
+neuron.top <- neuron.set[which(neuron.set$Fold_enriched_neurons > 15),][1:50,]
+
+astro.set <- read.csv("~/cell_type_prediction/astrocyte_genes_cahoy08.csv")
+head(astro.set)
+dim(astro.set)
+length(which(astro.set$Fold_enrichment_astrocytes > 15)) #104 genes
+astro.top <- astro.set[which(astro.set$Fold_enrichment_astrocytes > 15),][1:50,]
+
+OG.set <- read.csv("~/cell_type_prediction/oligodendrocyte_genes_cahoy08.csv")
+head(OG.set)
+dim(OG.set)
+length(which(OG.set$Fold_enriched_OG > 3)) #70 genes
+OG.top <- OG.set[which(OG.set$Fold_enriched_OG > 15),][1:50,]
+
+filter <- as.character(neuron.set$gene[which(neuron.set$gene %in% astro.set$gene)])
+filter <- c(filter, as.character(neuron.set$gene[which(neuron.set$gene %in% OG.set$gene)]))
+filter <- c(filter, as.character(astro.set$gene[which(astro.set$gene %in% OG.set$gene)]))
+filter
+
+neuron.set.filt <- neuron.set[-c(which(neuron.set$gene %in% filter)),]
+neuron.set.filt <- neuron.set.filt[which(neuron.set.filt$Fold_enriched_neurons > 5),]
+dim(neuron.set.filt)
+astro.set.filt <- astro.set[-c(which(astro.set$gene %in% filter)),]
+astro.set.filt <- astro.set.filt[which(astro.set.filt$Fold_enrichment_astrocytes > 5),]
+dim(astro.set.filt)
+OG.set.filt <- OG.set[-c(which(OG.set$gene %in% filter)),]
+OG.set.filt <- OG.set.filt[which(OG.set.filt$Fold_enriched_OG > 5),]
+dim(OG.set.filt)
+
+# making sure there are no overlaps
+which(neuron.set$gene %in% astro.set$gene)
+which(neuron.set$gene %in% OG.set$gene)
+which(astro.set$gene %in% OG.set$gene)
+```
+
+*Cell-type "correction"*
+```{r}
+load("~/Rscripts/all.combat.adjusted.cpm.Rdata")
+length(which(rownames(raw.all.peaks.combat) %in% neuron.dmrs))
+length(which(rownames(raw.all.peaks.combat) %in% astro.dmrs))
+length(which(rownames(raw.all.peaks.combat) %in% OG.dmrs))
+
+raw.all.peaks.combat.2 <- raw.all.peaks.combat[-(which(rownames(raw.all.peaks.combat) %in% neuron.dmrs)),]
+raw.all.peaks.combat.2 <- raw.all.peaks.combat.2[-(which(rownames(raw.all.peaks.combat.2) %in% astro.dmrs)),]
+raw.all.peaks.combat.2 <- raw.all.peaks.combat.2[-(which(rownames(raw.all.peaks.combat.2) %in% OG.dmrs)),]
+dim(raw.all.peaks.combat.2)
+dim(raw.all.peaks.combat)
+library(edgeR)
+
+corr.peaks.dge <- DGEList(counts = raw.all.peaks.combat.2[,1:48], genes=rownames(raw.all.peaks.combat.2), group=metadata[1:48,3], 
+                           norm.factors = NULL, remove.zeros=TRUE, lib.size = as.numeric(all.filt.counts))
+corr.peaks.dge$samples <- all.peaks.dge$samples
+corr.peaks.dge <- estimateCommonDisp(corr.peaks.dge)
+corr.peaks.dge  <- estimateTagwiseDisp(corr.peaks.dge )
+
+corr.peaks.dge$samples$age <- all.peaks.dge$samples$age
+corr.peaks.dge$samples$breeding <- factor(corr.peaks.dge$samples$breeding)
+```
+
+*Group + Age + Breeding Linear Model*
+```{r}
+group.plus.age.matrix <- model.matrix(~0+group+age+breeding, data= corr.peaks.dge$samples)
+group.plus.age.matrix <- group.plus.age.matrix[,-8]
+colnames(group.plus.age.matrix) 
+colnames(group.plus.age.matrix) <- c("Con","PAE","PF","age","dev4", "dev5","NYB")
+
+group.plus.age.model <- corr.peaks.dge
+group.plus.age.model <- estimateGLMCommonDisp(group.plus.age.model, group.plus.age.matrix)
+group.plus.age.model <- estimateGLMTrendedDisp(group.plus.age.model, group.plus.age.matrix)
+group.plus.age.model <- estimateGLMTagwiseDisp(group.plus.age.model, group.plus.age.matrix)
+plotBCV(group.plus.age.model)
+group.plus.age.fit <- glmFit(group.plus.age.model, group.plus.age.matrix)
+
+# PAE vs Con
+group.plus.age.lrt <- glmLRT(group.plus.age.fit, contrast=makeContrasts(PAE-Con, levels=group.plus.age.matrix))  
+group.plus.age.toptags <- topTags(group.plus.age.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(group.plus.age.toptags$table$PValue))
+group.plus.age.sig <- group.plus.age.toptags[which(group.plus.age.toptags$table$FDR<0.05 & 
+                                                     group.plus.age.toptags$table$logFC >= 0.5),] 
+dim(group.plus.age.sig) 
+group.plus.age.toptags$table$logFC
+
+#PAE vs PF
+group.plus.age.lrt.PAEvPF <- glmLRT(group.plus.age.fit, contrast=makeContrasts(PAE-PF, levels=group.plus.age.matrix))  
+group.plus.age.toptags.PAEvPF <- topTags(group.plus.age.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(group.plus.age.toptags.PAEvPF$table$PValue))
+group.plus.age.sig.PAEvPF <- group.plus.age.toptags.PAEvPF[which(group.plus.age.toptags.PAEvPF$table$FDR<0.05),] 
+dim(group.plus.age.sig.PAEvPF) 
+
+# PF vs Con
+group.plus.age.lrt.PFvC <- glmLRT(group.plus.age.fit, contrast=makeContrasts(PF-Con, levels=group.plus.age.matrix))  
+group.plus.age.toptags.PFvC <- topTags(group.plus.age.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(group.plus.age.toptags.PFvC$table$PValue))
+group.plus.age.sig.PFvC <- group.plus.age.toptags.PFvC[which(group.plus.age.toptags.PFvC$table$FDR<0.05),] 
+dim(group.plus.age.sig.PFvC) 
+
+#HITS#
+group.plus.age.sig <- group.plus.age.toptags[which(group.plus.age.toptags$table$FDR<0.05),] 
+group.plus.age.sig.PAEvPF <- group.plus.age.toptags.PAEvPF[which(group.plus.age.toptags.PAEvPF$table$FDR<0.05),] 
+group.plus.age.sig.PFvC <- group.plus.age.toptags.PFvC[which(group.plus.age.toptags.PFvC$table$FDR<0.05),] 
+
+group.plus.age.PAEvCvPF <- merge(group.plus.age.sig$table, group.plus.age.sig.PAEvPF$table, by="genes", all=F)
+group.plus.age.hits <- ((group.plus.age.PAEvCvPF[!group.plus.age.PAEvCvPF$genes %in%
+                                                   group.plus.age.sig.PFvC$table$genes,]))
+dim(group.plus.age.hits)
+head(group.plus.age.hits)
+
+
+dev.table.info <- cbind(group.plus.age.toptags$table[which(group.plus.age.toptags$table$genes %in% group.plus.age.hits$genes),],
+               group.plus.age.toptags.PAEvPF$table[which(group.plus.age.toptags.PAEvPF$table$genes %in%
+                                                           group.plus.age.hits$genes),],
+               group.plus.age.toptags.PFvC$table[which(group.plus.age.toptags.PFvC$table$genes %in% group.plus.age.hits$genes),])
+head(dev.table.info)
+
+#write.table(dev.table.info, "/Users/aal89/Dropbox/Manuscripts/Under\ review/Rat_DNAm/Submission/Frontiers\ in\ Genetics/Revisions/Analysis/dev_hits.detail.txt", sep ="\t", row.names=F, quote=F)
+
+
+```
+
+*P-value distribution and Venn diagram*
+```{r}
+#Density plots of p-values #
+par(lwd=3)
+plot(0, xlab="P-value", ylab="Density", type="n", xlim=c(-0.1,1.1), ylim=c(0,3), 
+     main="P-value Distributions\n(~0+group+age+breeding)", xaxs="i", yaxs="i", cex.lab=1.4, cex.axis=1.2)
+lines(density(group.plus.age.toptags$table$PValue, ), col="red", lty=1)
+lines(density(group.plus.age.toptags.PAEvPF$table$PValue), col="green", lty=2)
+lines(density(group.plus.age.toptags.PFvC$table$PValue), col="blue", lty=6)
+legend("topright",c("PAEvCon","PAEvPF","PFvC"), col=c("red","green","blue"), lty=c(1,2,6), cex=1.2)
+par(lwd=1)
+
+#Venn of overlaps
+par(mfrow=c(1,1))
+library(VennDiagram)
+
+v1 <-group.plus.age.sig$table$genes
+v2 <- group.plus.age.sig.PAEvPF$table$genes
+v3 <- group.plus.age.sig.PFvC$table$genes
+
+a <- venn(list(PAEvC= v1,PAEvPF= v2, PFvC= v3)) 
+b <- cbind(a[,2],a[,3],a[,4],a[,1])
+colnames(b) <- c("PAEvC","PAEvPF","PFvC","Counts")
+class(b) <- "VennCounts"
+b[1,4]<-sum(b[,4])
+
+vennDiagram(b, circle.col=c("#A50A16", "#347E35","#232F66"), main="Overlap of hits at FDR<0.05", cex=2)
+
+```
+
+*Volcano Plot*
+```{r}
+par(mfrow=c(2,2))
+with(group.plus.age.toptags$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PAEvCon Volcano plot", xlim=c(-3,3), ylim=c(0,20)))
+with(subset(group.plus.age.toptags$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(group.plus.age.toptags$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(group.plus.age.toptags$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), cex=0.5, pch=20, col="green"))
+
+with(group.plus.age.toptags.PAEvPF$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PAEvPF Volcano plot", xlim=c(-3,3), ylim=c(0,20)))
+with(subset(group.plus.age.toptags.PAEvPF$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(group.plus.age.toptags.PAEvPF$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(group.plus.age.toptags.PAEvPF$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="green"))
+
+with(group.plus.age.toptags.PFvC$table, plot(logFC, -log10(PValue), pch=20, cex=0.5, main="PAEvPF Volcano plot", xlim=c(-3,3),ylim=c(0,20)))
+with(subset(group.plus.age.toptags.PFvC$table, FDR<0.05), points(logFC, -log10(PValue), pch=20, cex=0.5, col="red"))
+with(subset(group.plus.age.toptags.PFvC$table, abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="orange"))
+with(subset(group.plus.age.toptags.PFvC$table, FDR<.05 & abs(logFC)>1), points(logFC, -log10(PValue), pch=20, cex=0.5, col="green"))
+plot.new() 
+legend("center",c("FDR<0.05","logFC>1","FDR<0.05 & logFC>1"), col=c("red","orange","green"), pch=20,cex=1)
+par(mfrow=c(1,1))
+```
+
+*Plotting hits* 
+```{r}
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+source("~/Rscripts/heatmap.3.R")
+sidecol <- cbind(c(rep("blue",16), rep("darkgreen",16), rep("red",16)),
+                 c(rep(c(rep("yellow",4),rep("orange",4),rep("darkgreen",4),rep("purple",4)),3)))
+colnames(sidecol) <- c("Treatment", "Age")
+str(sidecol)
+#Heatmap all hits
+group.plus.age.hits.cpm <- cpm(group.plus.age.fit$counts[as.character(group.plus.age.hits$genes),], 
+                  log=F, lib.size=corr.peaks.dge$samples$lib.size)
+
+
+group.plus.age.hits.cpm.2 <- group.plus.age.hits.cpm[,c(grep("C", colnames(group.plus.age.hits.cpm)), 
+                                                        grep("PF", colnames(group.plus.age.hits.cpm)),
+                                                        grep("E", colnames(group.plus.age.hits.cpm)))]
+ncol(group.plus.age.hits.cpm)
+heatmap.3(group.plus.age.hits.cpm.2, Rowv = T, Colv = F, trace="none", dendrogram = "none", col=col, scale="row",
+          main="Hits at FDR<0.05", ColSideColors= sidecol, density.info= "histogram", labRow=NA,
+          margins = c(8, 8), ColSideColorsSize=1.8, KeyValueName="RPKM", cexCol=1.5,key=T)
+
+
+#simplifying the table by group/age
+sample.frame <- (cbind(as.factor(group.plus.age.model$samples$group), as.factor(group.plus.age.model$samples$age)))
+dev.hits.simple <- cbind(sample.frame, t(group.plus.age.hits.cpm))
+colnames(dev.hits.simple)[1:2] <- c("group","age")
+dev.hits.simple <- data.frame(dev.hits.simple)
+groupColumns = c("group","age")
+dataColumns = colnames(dev.hits.simple)[3:ncol(dev.hits.simple)]
+library(plyr)
+dev.hits.simple.2 = ddply(dev.hits.simple, groupColumns, function(x) colMeans(x[dataColumns]))
+head(dev.hits.simple.2)
+dev.hits.simple.2 <- dev.hits.simple.2[c(1:4,9:12,5:8),] 
+
+
+(dev.hits.simple.2)[,1:2]
+library(reshape)
+dev.hits.simple.melt <- (melt(dev.hits.simple.2, id.vars=c("group","age")))
+dev.hits.simple.melt$group <- gsub(1, "C", dev.hits.simple.melt$group)
+dev.hits.simple.melt$group <- gsub(2, "PAE", dev.hits.simple.melt$group)
+dev.hits.simple.melt$group <- gsub(3, "PF", dev.hits.simple.melt$group)
+dev.hits.simple.melt$group <- as.factor(dev.hits.simple.melt$group)
+dev.hits.simple.melt$age <- gsub(2, 8, dev.hits.simple.melt$age)
+dev.hits.simple.melt$age <- gsub(3, 15, dev.hits.simple.melt$age)
+dev.hits.simple.melt$age <- gsub(4, 22, dev.hits.simple.melt$age)
+head(dev.hits.simple.melt)
+dev.hits.simple.melt$age <- factor(dev.hits.simple.melt$age, levels=c(1,8,15,22))
+
+dev.hits.simple.melt$genes <- gsub("\\.",":", dev.hits.simple.melt$variable)
+head(dev.hits.simple.melt.2)
+dev.hits.simple.melt.2 <- merge(dev.hits.simple.melt, dev.annot, by="genes")
+
+ggplot(dev.hits.simple.melt.2[which(!is.na(dev.hits.simple.melt.2$name)),], aes(x=age, y=value, group=group, colour=group))+
+  geom_line()+
+  facet_wrap(~name, scale="free")+
+  scale_colour_manual(values=c("#232F66","#A50A16", "#347E35"))+
+  ylab("Mean RPKM")+
+  xlab("Age")
+  
+dev.hits.simple.melt.2[which(!is.na(dev.hits.simple.melt.2$name)),][361:381,]
+
+
+sidecol.simple <- cbind(c(rep("#232F66",4),rep("#347E35",4),rep("#A50A16",4)),
+                        c(rep(c("#2F64B5","#480F3B","#CA4023","#E09425"),3)))
+colnames(sidecol.simple) <- c("Treatment", "Age")
+heatmap.3(t(dev.hits.simple.2[,3:ncol(dev.hits.simple.2)]), Rowv=T, Colv=F, trace="none", col=rev(col), scale="row",
+          dendrogram="none",main="Summarized Hits at FDR<0.05", ColSideColors = sidecol.simple, 
+          density.info= "none", labRow=NA, labCol=NA,
+          margins = c(8, 8), ColSideColorsSize=1.8, KeyValueName="RPKM", cexCol=1.5,key=T)
+
+write.table(t(dev.hits.simple.2), "dev.hits.rpkm.txt", quote=F,sep="\t")
+
+
+colnames(dev.hits.simple.2) <- gsub("\\.",":",colnames(dev.hits.simple.2))
+heatmap.3(t(dev.hits.simple.2[,-c(1:2)]),
+                              Rowv=T, Colv=F, trace="none", col=rev(col),
+          dendrogram="none",main="Summarized Hits at FDR<0.05", ColSideColors = sidecol.simple, 
+          density.info= "none", labRow=NA, labCol=NA,
+          margins = c(8, 8), ColSideColorsSize=1.8, KeyValueName="RPKM", cexCol=1.5,key=T)
+
+plot.new()
+legend("left", legend=c("P1","P8","P15","P22","", "C","PF","PAE", "","HYP","WBC"), 
+       fill=c("#2F64B5","#480F3B","#CA4023","#E09425","white","#232F66", "#347E35","#A50A16","white","grey","black"), 
+       border=FALSE, bty="n", y.intersp = 1, cex=1, x.intersp=0.35)
+par(family="Arial")
+
+```
+
+*Up/Down methylated hits*
+```{r}
+# UP AND DOWN METHYLATED
+#negative
+GplusA.neg.hits <- group.plus.age.hits[group.plus.age.hits$logFC.x<0,]
+GplusA.neg.hits <- GplusA.neg.hits[GplusA.neg.hits$logFC.y<0,]
+dim(GplusA.neg.hits)
+GplusA.neg.hits.CPM <- cpm(group.plus.age.fit$counts[GplusA.neg.hits$genes,], 
+                    log=F, lib.size=corr.peaks.dge$samples$lib.size)
+head(GplusA.neg.hits.CPM)
+heatmap.3(GplusA.neg.hits.CPM, Rowv = T, Colv = F, trace="none", dendrogram = "column", col=col, 
+          main = "Hypomethylation in PAE animals versus controls\nFDR<0.05", labRow=NA, scale="row",
+          ColSideColors= sidecol, density.info= "histogram", margins = c(8, 8), ColSideColorsSize=1.8, KeyValueName="RPKM",
+          cexCol=1.5,key=T)
+
+legend("left", legend=c("HYP","WBC","", "Con","PF","PAE"), 
+       fill=c("grey","black","white", "blue", "darkgreen", "red"), 
+       border=FALSE, bty="n", y.intersp = 1, cex=1, x.intersp=0.35)
+
+
+#positive
+GplusA.pos.hits <- group.plus.age.hits[group.plus.age.hits$logFC.x>0,]
+GplusA.pos.hits <- GplusA.pos.hits[GplusA.pos.hits$logFC.y>0,]
+dim(GplusA.pos.hits)
+GplusA.pos.hits.CPM <- cpm(group.plus.age.fit$counts[GplusA.pos.hits$genes,], 
+                    log=F, lib.size=corr.peaks.dge$samples$lib.size)
+max(GplusA.pos.hits.CPM)
+heatmap.3(GplusA.pos.hits.CPM, Rowv = T, Colv = T, trace="none", dendrogram = "col", 
+          col=col, main = "Hypermethylation in PAE animals versus controls", labRow=NA,
+          ColSideColors= sideCols, density.info= "histogram", margins = c(8, 8), 
+          ColSideColorsSize=1.8, KeyValueName="logCPM", cexCol=1.5,key=T)
+
+```
+
+*Annotation of genomic regions*
+```{r}
+#Genomic Features
+load("~/region_bams/dev_peaks_annot/dev.peakset.annotation.Rdata")
+head(group.plus.age.annot)
+group.plus.age.annot <- dev.annot[which(dev.annot$genes %in% group.plus.age.annot$genes),]
+group.plus.age.annot.pos <- group.plus.age.annot[which(group.plus.age.annot$genes %in% GplusA.pos.hits$genes),]
+group.plus.age.annot.neg <- group.plus.age.annot[which(group.plus.age.annot$genes %in% GplusA.neg.hits$genes),]
+
+group.plus.age.annot$gene[which(group.plus.age.annot$ID == "NM_001109199")]
+
+gpa.bootstrap_peaks_function.annot <-lapply(1:1000, function(x){
+  print(x)
+  set.seed(x)
+  Hit_number.all <- nrow(group.plus.age.annot)
+  Hit_number.pos <- nrow(group.plus.age.annot.pos)
+  Hit_number.neg <- nrow(group.plus.age.annot.neg)
+  rnd_peak.all <- dev.annot$genes[sample(1:nrow(dev.annot),Hit_number.all)]
+  rnd_peak.pos <- dev.annot$genes[sample(1:nrow(dev.annot),Hit_number.pos)]
+  rnd_peak.neg <- dev.annot$genes[sample(1:nrow(dev.annot),Hit_number.neg)]
+  annot_rnd.all <- dev.annot[which(dev.annot$genes%in%rnd_peak.all),]
+  annot_rnd.pos <- dev.annot[which(dev.annot$genes%in%rnd_peak.pos),]
+  annot_rnd.neg <- dev.annot[which(dev.annot$genes%in%rnd_peak.neg),]
+  colnames(annot_rnd.all)
+  annot_features.all  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.all$prom200))),
+                                           length(which(!is.na(annot_rnd.all$prom1500))),
+                                           length(which(!is.na(annot_rnd.all$cpg))),
+                                           length(which(!is.na(annot_rnd.all$exons) & is.na(annot_rnd.all$introns))),
+                                           length(which(!is.na(annot_rnd.all$introns) & is.na(annot_rnd.all$exons))),
+                                           length(which(!is.na(annot_rnd.all$exons) & !is.na(annot_rnd.all$introns))),
+                                           length(which(is.na(annot_rnd.all$exons) & is.na(annot_rnd.all$introns) &
+                                                          is.na(annot_rnd.all$prom200) & is.na(annot_rnd.all$prom1500)
+                                                        & is.na(annot_rnd.all$cpg) &is.na(annot_rnd.all$UTR.5)
+                                                        &is.na(annot_rnd.all$UTR.3))),
+                                           length(which(!is.na(annot_rnd.all$UTR.5))),
+                                           length(which(!is.na(annot_rnd.all$UTR.3)))
+  )))
+  annot_features.pos  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.pos$prom200))),
+                                           length(which(!is.na(annot_rnd.pos$prom1500))),
+                                           length(which(!is.na(annot_rnd.pos$cpg))),
+                                           length(which(!is.na(annot_rnd.pos$exons) & is.na(annot_rnd.pos$introns))),
+                                           length(which(!is.na(annot_rnd.pos$introns) & is.na(annot_rnd.pos$exons))),
+                                           length(which(!is.na(annot_rnd.pos$exons) & !is.na(annot_rnd.pos$introns))),
+                                           length(which(is.na(annot_rnd.pos$exons) & is.na(annot_rnd.pos$introns) &
+                                                          is.na(annot_rnd.pos$prom200) & is.na(annot_rnd.pos$prom1500)
+                                                        & is.na(annot_rnd.pos$cpg) &is.na(annot_rnd.pos$UTR.5)
+                                                        &is.na(annot_rnd.pos$UTR.3))),
+                                           length(which(!is.na(annot_rnd.pos$UTR.5))),
+                                           length(which(!is.na(annot_rnd.pos$UTR.3)))
+  )))
+  annot_features.neg  <- annot_features.neg  <- (as.numeric(cbind(length(which(!is.na(annot_rnd.neg$prom200))),
+                                                                  length(which(!is.na(annot_rnd.neg$prom1500))),
+                                                                  length(which(!is.na(annot_rnd.neg$cpg))),
+                                                                  length(which(!is.na(annot_rnd.neg$exons) & is.na(annot_rnd.neg$introns))),
+                                                                  length(which(!is.na(annot_rnd.neg$introns) & is.na(annot_rnd.neg$exons))),
+                                                                  length(which(!is.na(annot_rnd.neg$exons) & !is.na(annot_rnd.neg$introns))),
+                                                                  length(which(is.na(annot_rnd.neg$exons) & is.na(annot_rnd.neg$introns) &
+                                                                                 is.na(annot_rnd.neg$prom200) & is.na(annot_rnd.neg$prom1500)
+                                                                               & is.na(annot_rnd.neg$cpg) &is.na(annot_rnd.neg$UTR.5)
+                                                                               &is.na(annot_rnd.neg$UTR.3))),
+                                                                  length(which(!is.na(annot_rnd.neg$UTR.5))),
+                                                                  length(which(!is.na(annot_rnd.neg$UTR.3)))
+  )))
+  a <- data.frame(rbind(annot_features.all, annot_features.pos, annot_features.neg), type = c("all","pos","neg"))
+  colnames(a) <- c("Prom200","Prom1500","CGI", "Exons","Introns","Exon/Intron","Intergenic","5' UTR","3'UTR","type") 
+  a
+})
+
+gpa.bootstrap.annot <- do.call(rbind,gpa.bootstrap_peaks_function.annot)
+head(gpa.bootstrap.annot)
+gpa.bootstrap.annot.all <- gpa.bootstrap.annot[which(gpa.bootstrap.annot$type =="all"),]
+gpa.bootstrap.annot.pos <- gpa.bootstrap.annot[which(gpa.bootstrap.annot$type =="pos"),]
+gpa.bootstrap.annot.neg <- gpa.bootstrap.annot[which(gpa.bootstrap.annot$type =="neg"),]
+
+
+gpa.bootstrap.annot.mean.all <- colMeans(gpa.bootstrap.annot.all[,1:9])
+gpa.bootstrap.annot.mean.pos <- colMeans(gpa.bootstrap.annot.pos[,1:9])
+gpa.bootstrap.annot.mean.neg <- colMeans(gpa.bootstrap.annot.neg[,1:9])
+
+gpa.bootstrap.annot.sd.all <- apply(gpa.bootstrap.annot.all[,1:9], 2, sd)
+gpa.bootstrap.annot.sd.pos <- apply(gpa.bootstrap.annot.pos[,1:9], 2, sd)
+gpa.bootstrap.annot.sd.neg <- apply(gpa.bootstrap.annot.neg[,1:9], 2, sd)
+
+gpa.bootstrap.annot.frame <- data.frame(Probe_Count=as.numeric(gpa.bootstrap.annot.mean.all),
+                                            Probe_count_SD=as.numeric(gpa.bootstrap.annot.sd.all),
+                                            Feature=colnames(gpa.bootstrap.annot[1:9]), type = "All")
+gpa.bootstrap.annot.frame <- rbind(gpa.bootstrap.annot.frame, 
+                                       data.frame(Probe_Count=as.numeric(gpa.bootstrap.annot.mean.pos),
+                                                  Probe_count_SD=as.numeric(gpa.bootstrap.annot.sd.pos),
+                                                  Feature=colnames(gpa.bootstrap.annot[1:9]), type = "Hypermethylated"))
+gpa.bootstrap.annot.frame <- rbind(gpa.bootstrap.annot.frame, 
+                                       data.frame(Probe_Count=as.numeric(gpa.bootstrap.annot.mean.neg),
+                                                  Probe_count_SD=as.numeric(gpa.bootstrap.annot.sd.neg),
+                                                  Feature=colnames(gpa.bootstrap.annot[1:9]), type = "Hypomethylated"))
+gpa.bootstrap.annot.frame$Data <- "Random"
+gpa.bootstrap.annot.frame
+
+gpa.features <- data.frame(Probe_Count= rbind(length(which(!is.na(group.plus.age.annot$prom200))),
+                                                        length(which(!is.na(group.plus.age.annot$prom1500))),
+                                                        length(which(!is.na(group.plus.age.annot$cpg))),
+                                                        length(which(!is.na(group.plus.age.annot$exons) & is.na(group.plus.age.annot$introns))),
+                                                        length(which(!is.na(group.plus.age.annot$introns) & is.na(group.plus.age.annot$exons))),
+                                                        length(which(!is.na(group.plus.age.annot$exons) & !is.na(group.plus.age.annot$introns))),
+                                                        length(which(is.na(group.plus.age.annot$exons) & is.na(group.plus.age.annot$introns) &
+                                                                       is.na(group.plus.age.annot$prom200) & is.na(group.plus.age.annot$prom1500)
+                                                                     & is.na(group.plus.age.annot$cpg) &is.na(group.plus.age.annot$UTR.5)
+                                                                     &is.na(group.plus.age.annot$UTR.3))),
+                                                        length(which(!is.na(group.plus.age.annot$UTR.5))),
+                                                        length(which(!is.na(group.plus.age.annot$UTR.3))) ), 
+                                     Feature=colnames(gpa.bootstrap.annot[1:9]), type = "All")
+gpa.features <- rbind(gpa.features, 
+                                data.frame(Probe_Count= rbind(length(which(!is.na(group.plus.age.annot.pos$prom200))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$prom1500))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$cpg))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$exons) & is.na(group.plus.age.annot.pos$introns))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$introns) & is.na(group.plus.age.annot.pos$exons))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$exons) & !is.na(group.plus.age.annot.pos$introns))),
+                                                              length(which(is.na(group.plus.age.annot.pos$exons) & is.na(group.plus.age.annot.pos$introns) &
+                                                                             is.na(group.plus.age.annot.pos$prom200) & is.na(group.plus.age.annot.pos$prom1500)
+                                                                           & is.na(group.plus.age.annot.pos$cpg) &is.na(group.plus.age.annot.pos$UTR.5)
+                                                                           &is.na(group.plus.age.annot.pos$UTR.3))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$UTR.5))),
+                                                              length(which(!is.na(group.plus.age.annot.pos$UTR.3)))  ), 
+                                           Feature=colnames(gpa.bootstrap.annot[1:9]), type = "Hypermethylated"))
+gpa.features <- rbind(gpa.features, 
+                                data.frame(Probe_Count= rbind(length(which(!is.na(group.plus.age.annot.neg$prom200))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$prom1500))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$cpg))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$exons) & is.na(group.plus.age.annot.neg$introns))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$introns) & is.na(group.plus.age.annot.neg$exons))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$exons) & !is.na(group.plus.age.annot.neg$introns))),
+                                                              length(which(is.na(group.plus.age.annot.neg$exons) & is.na(group.plus.age.annot.neg$introns) &
+                                                                             is.na(group.plus.age.annot.neg$prom200) & is.na(group.plus.age.annot.neg$prom1500)
+                                                                           & is.na(group.plus.age.annot.neg$cpg) &is.na(group.plus.age.annot.neg$UTR.5)
+                                                                           &is.na(group.plus.age.annot.neg$UTR.3))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$UTR.5))),
+                                                              length(which(!is.na(group.plus.age.annot.neg$UTR.3)))  ), 
+                                           Feature=colnames(gpa.bootstrap.annot[1:9]), type = "Hypomethylated"))
+gpa.features$Data <- "DMRs"
+gpa.features$Probe_count_SD <- 0
+gpa.features <- gpa.features[,match(colnames(gpa.bootstrap.annot.frame),colnames(gpa.features))]
+
+gpa.annot.plot <- rbind(gpa.features, gpa.bootstrap.annot.frame)
+
+
+ggplot(gpa.annot.plot, aes(Feature, Probe_Count, fill=Data, group=Data))+
+  geom_bar(position=position_dodge(width=0.9),stat="identity", color="black")+theme_bw()+
+  facet_wrap(~type)+
+  geom_errorbar(aes(ymax = Probe_Count + Probe_count_SD, ymin=Probe_Count - Probe_count_SD),
+                width=0.25,position=position_dodge(width=0.9))+
+  scale_fill_manual(values= c("#82AAB6","#CC9750"))+
+  ylab("Probe count")+
+  ggtitle("Genomic feature enrichment profile")+
+  theme(
+    axis.text.y = element_text(size=25, color="black"),
+    axis.text.x = element_text(size=20, color="black", angle = 45, vjust =1, hjust = 1),
+    axis.title.y = element_text(size=30, color="black"),
+    axis.title.x = element_text(size=30, color="black"),
+    plot.title = element_text(face="bold", size=25),
+    legend.text = element_text(size=18),
+    legend.title = element_text(colour="white"),
+    strip.text = element_text(size = 25, face = "bold"))
+
+
+
+length(which(gpa.bootstrap.annot.all$Prom200 <= gpa.features$Probe_Count[1]))/1000 #
+length(which(gpa.bootstrap.annot.all$Prom1500 <= gpa.features$Probe_Count[2]))/1000 #
+length(which(gpa.bootstrap.annot.all$CGI >= gpa.features$Probe_Count[3]))/1000 #0.12
+length(which(gpa.bootstrap.annot.all$Exons >= gpa.features$Probe_Count[4]))/1000 #
+length(which(gpa.bootstrap.annot.all$Introns <= gpa.features$Probe_Count[5]))/1000 #
+length(which(gpa.bootstrap.annot.all[,6] <= gpa.features$Probe_Count[6]))/1000 #
+length(which(gpa.bootstrap.annot.all$Intergenic >= gpa.features$Probe_Count[7]))/1000 #
+length(which(gpa.bootstrap.annot.all[,8] <= gpa.features$Probe_Count[8]))/1000 #
+length(which(gpa.bootstrap.annot.all[,9] <= gpa.features$Probe_Count[9]))/1000 #
+
+length(which(gpa.bootstrap.annot.pos$Prom200 <= gpa.features$Probe_Count[1+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos$Prom1500 <= gpa.features$Probe_Count[2+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos$CGI >= gpa.features$Probe_Count[3+9]))/1000 #0.028 ###
+length(which(gpa.bootstrap.annot.pos$Exons >= gpa.features$Probe_Count[4+9]))/1000 #0.055 ##
+length(which(gpa.bootstrap.annot.pos$Introns >= gpa.features$Probe_Count[5+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos[,6] >= gpa.features$Probe_Count[6+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos$Intergenic >= gpa.features$Probe_Count[7+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos[,8] <= gpa.features$Probe_Count[8+9]))/1000 #
+length(which(gpa.bootstrap.annot.pos[,9] <= gpa.features$Probe_Count[9+9]))/1000 #
+
+length(which(gpa.bootstrap.annot.neg$Prom200 <= gpa.features$Probe_Count[1+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg$Prom1500 <= gpa.features$Probe_Count[2+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg$CGI <= gpa.features$Probe_Count[3+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg$Exons <= gpa.features$Probe_Count[4+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg$Introns <= gpa.features$Probe_Count[5+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg[,6] <= gpa.features$Probe_Count[6+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg$Intergenic >= gpa.features$Probe_Count[7+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg[,8] <= gpa.features$Probe_Count[8+18]))/1000 #
+length(which(gpa.bootstrap.annot.neg[,9] <= gpa.features$Probe_Count[9+18]))/1000 #
+```
+
+*Tables for ermineJ*
+```{r}
+dev.PAEvC.table <- merge(data.frame(group.plus.age.toptags), dev.annot, by="genes", all.x=T)
+length(which(group.plus.age.toptags$table$FDR<0.05))
+head(group.plus.age.hits.cpm)
+dim(dev.PAEvC.table)
+dev.PAEvC.table <- dev.PAEvC.table[complete.cases(dev.PAEvC.table$name),]
+head(dev.PAEvC.table)
+dim(dev.PAEvC.table)
+dev.PAEvC.table <- dev.PAEvC.table[,c(8,5,6)]
+dim(dev.PAEvC.table)
+write.table(dev.PAEvC.table, file="~/ermineJ/20160504.dev.PAEvC.table.txt", sep="\t",row.names=F,col.names = T, quote=F)
+
+dev.PAEvPF.table <- merge(data.frame(group.plus.age.toptags.PAEvPF), dev.annot, by="genes", all.x=T)
+head(dev.PAEvPF.table)
+dim(dev.PAEvPF.table)
+dev.PAEvPF.table <- dev.PAEvPF.table[complete.cases(dev.PAEvPF.table$name),]
+head(dev.PAEvPF.table)
+dim(dev.PAEvPF.table)
+dev.PAEvPF.table <- dev.PAEvPF.table[,c(8,5,6)]
+dim(dev.PAEvPF.table)
+write.table(dev.PAEvPF.table, file="~/ermineJ/20160504.dev.PAEvPF.table.txt", sep="\t",row.names=F,col.names = T, quote=F)
+
+dev.PFvC.table <- merge(data.frame(group.plus.age.toptags.PFvC), dev.annot, by="genes", all.x=T)
+head(dev.PFvC.table)
+dim(dev.PFvC.table)
+dev.PFvC.table<- dev.PFvC.table[complete.cases(dev.PFvC.table$name),]
+head(dev.PFvC.table)
+dim(dev.PFvC.table)
+dev.PFvC.table <- dev.PFvC.table[,c(8,5,6)]
+head(dev.PFvC.table)
+
+write.table(dev.PFvC.table, file="~/ermineJ/20160504.dev.PFvC.table.txt", sep="\t",row.names=F, col.names = T, quote=F)
+
+write.table(dev.annot, file="~/ermineJ/20160504.dev.annot.txt", sep="\t",row.names=F, col.names = T, quote=F)
+
+```
+
+*PWMEnrich for TFBS*
+```{r}
+
+library(PWMEnrich)
+library(PWMEnrich.Mmusculus.background)
+
+load("~/region_bams/dev_peaks_annot/dev.peakset.sequences.Rdata")
+length(dev.motif)
+dev.motif <- DNAStringSet(dev.sequences$seq[which(dev.sequences$genes %in% group.plus.age.hits$genes)])
+dev.hits.seq <- dev.sequences$seq[which(dev.sequences$genes %in% group.plus.age.hits$genes)]
+
+dev.motif.bkg <- makePWMLognBackground(dev.stringset, MotifDb.Mmus)
+
+#dev.motif <- readDNAStringSet(file = "~/underlying_seqs/group.plus.age.hits.fa")
+data(PWMLogn.mm9.MotifDb.Mmus)
+
+dev.enrich <- motifEnrichment(dev.motif, PWMLogn.mm9.MotifDb.Mmus)
+dev.report = groupReport(dev.enrich)
+dev.report.2 <- as.data.frame(dev.report)
+dev.report.adj <- dev.report.2[which(p.adjust(dev.report.2$p.value, method = "BH") <0.05),]
+
+
+#permutations
+dev.stringset <- DNAStringSet(dev.sequences$seq)
+dev.perm.list <- mclapply(1:100, function(x){
+  print(x)
+  set.seed(x)
+  rand.seqs <- dev.stringset[sample(1:length(dev.stringset), 118)]
+  rand.enrich <- motifEnrichment(rand.seqs, PWMLogn.mm9.MotifDb.Mmus)
+  rand.report <- groupReport(rand.enrich)
+  rand.data <- as.data.frame(rand.report)
+  rand.data$FDR <- p.adjust(rand.data$p.value, method = "BH")
+  rand.sig <- rand.data[which(rand.data$p.value <= 0.05),]
+  rand.sig$rank <- paste(rand.sig$rank, "_perm", x, sep="")
+  rand.sig
+}, mc.cores = 6)
+
+dev.perm.rand.tfbs <- do.call(rbind, dev.perm.list)
+dev.perm.rand.tfbs.sig <- dev.perm.rand.tfbs[which(dev.perm.rand.tfbs$FDR <= 0.05),]
+dim(dev.perm.rand.tfbs.sig)
+barplot(table(dev.perm.rand.tfbs.sig$target))
+
+dev.report.adj[-which(dev.report.adj$target %in% names(which(table(dev.perm.rand.tfbs.sig$target)>100))),]
+
+
+dev.score <- lapply(1:nrow(dev.report.adj), function(x){
+  a <- dev.perm.rand.tfbs.sig[which(dev.perm.rand.tfbs.sig$id == dev.report.adj$id[x]),]
+  b <- length(which(a$raw.score > dev.report.adj$raw.score[x]))
+  data.frame(tfbs =dev.report.adj$target[x], id=dev.report.adj$id[x],
+             score = dev.report.adj$raw.score[x], avg.score = mean(a$raw.score), p.val = b/1000)
+  })
+dev.score.2 <- do.call(rbind, dev.score)
+dev.score.2$FDR <- p.adjust(dev.score.2$p.val, method="BH")
+dev.score.2[which(dev.score.2$p.val <0.05),]
+
+
+
+dev.prop <- lapply(1:nrow(dev.report.adj), function(x){
+  a <- dev.perm.rand.tfbs.sig[which(dev.perm.rand.tfbs.sig$id == dev.report.adj$id[x]),]
+  b <- length(which(a$top.motif.prop >= dev.report.adj$top.motif.prop[x]))
+  sem <- sd(a$top.motif.prop)/sqrt(length(a$top.motif.prop))
+  data.frame(tfbs =dev.report.adj$target[x], id=dev.report.adj$id[x], 
+             Hits = dev.report.adj$top.motif.prop[x],Random = mean(a$top.motif.prop), sem.bvb=NA, sem.perm = sem, p.val = b/1000)
+  })
+dev.prop.2 <- do.call(rbind, dev.prop)
+dev.prop.2$FDR <- p.adjust(dev.prop.2$p.val, method="BH")
+dev.prop.2$Random[which(is.na(dev.prop.2$Random))] <- 0
+dev.prop.2 <- dev.prop.2[-14,]
+dev.prop.sig <- dev.prop.2[which(dev.prop.2$p.val <= 0.05 & dev.prop.2$Hits > (6/118)),]
+dev.prop.sig$tfbs <- toupper(dev.prop.sig$tfbs)
+
+
+
+#plotting
+dev.prop.melt <- melt(dev.prop.2[,c(1,3,4)])
+head(dev.prop.melt)
+
+dev.sem.melt <- melt(dev.prop.2[,c(1,5,6)])
+dev.prop.melt$ymax <- dev.sem.melt$value + dev.prop.melt$value
+dev.prop.melt$ymin <- dev.prop.melt$value - dev.sem.melt$value
+
+dev.prop.sig.2 <- dev.prop.2
+dev.prop.sig.2$p.val[which(dev.prop.sig.2$p.val >0.05)] <- " "
+dev.prop.sig.2$p.val[which(dev.prop.sig.2$p.val >0 & dev.prop.sig.2$p.val<0.05)] <- "*"
+dev.prop.sig.2$p.val[which(dev.prop.sig.2$p.val ==0)] <- "**"
+
+ggplot(data = dev.prop.melt[-c(7,21),], aes(x=tfbs, y = value, group= variable))+
+  geom_bar(stat="identity", position = "dodge", aes(fill = as.factor(variable)))+
+  theme_cowplot()+
+  ylab("Fraction of DMRs")+
+  xlab("TFBS")+
+  geom_text(data = dev.prop.sig.2, aes(x=tfbs, y = Hits+0.01, label = p.val, group = tfbs), size = 8)+
+  geom_errorbar(aes(ymax=ymax, ymin=ymin), position = "dodge")+
+  scale_fill_manual(values= c("#82AAB6","#CC9750"))+
+  ggtitle("TFBS enrichment profile")+
+  theme(
+    axis.text.y = element_text(size=25, color="black"),
+    axis.text.x = element_text(size=20, color="black", angle = 45, vjust =1, hjust = 1),
+    axis.title.y = element_text(size=30, color="black"),
+    axis.title.x = element_text(size=30, color="black"),
+    plot.title = element_text(face="bold", size=25),
+    legend.text = element_text(size=18),
+    legend.title = element_text(colour="white"),
+    strip.text = element_text(size = 25, face = "bold"))
+
+
+```
+
+#Permutation for significance of genomic locations*
+```{r}
+
+dim(group.plus.age.annot)
+      bootstrap_peaks_function.annot <-lapply(1:1000, function(x){
+        print(x)
+        set.seed(x)
+        Hit_number <- nrow(group.plus.age.annot[1])
+        rnd_peak <- group.plus.age.fit$genes[sample(1:nrow(group.plus.age.fit$genes),Hit_number),1]
+        annot_rnd <- dev.annot[which(dev.annot$genes%in%rnd_peak),]
+        head(annot_rnd)
+        annot_features <- (as.numeric(cbind(length(which(!is.na(annot_rnd$prom1500))),
+                                    length(which(!is.na(annot_rnd$cpg))),
+                                    length(which(!is.na(annot_rnd$exons) & is.na(annot_rnd$introns))),
+                                    length(which(!is.na(annot_rnd$introns) & is.na(annot_rnd$exons))),
+                                    length(which(!is.na(annot_rnd$exons) & !is.na(annot_rnd$introns))),
+                                    length(which(is.na(annot_rnd$name) & is.na(annot_rnd$cpg))),
+                                    length(which(!is.na(annot_rnd$UTR.5))),
+                                    length(which(!is.na(annot_rnd$UTR.3))),
+                                    length(which(!is.na(annot_rnd$exon.1))),
+                                    length(which(!is.na(annot_rnd$exons) | !is.na(annot_rnd$introns) | 
+                                                    !is.na(annot_rnd$UTR.5) | !is.na(annot_rnd$UTR.3)))
+           
+                                    )))
+        })
+      bootstrap_peaks.annot <- data.frame(do.call(rbind,bootstrap_peaks_function.annot))
+      colnames(bootstrap_peaks.annot) <- c("Promoter","CGI","Exons","Introns","Intron/exon","Intergenic", "5'UTR","3'UTR","1st Exon","Body") 
+      head(bootstrap_peaks.annot)
+      
+      bootstrap.pval <- data.frame(cbind(increased = c(promoter = length(which(bootstrap_peaks.annot$Promoter >= promoter.pos))/10000,
+                                cgi = length(which(bootstrap_peaks.annot$CGI >= cgi.pos))/10000,
+                                exons = length(which(bootstrap_peaks.annot$Exons >= exon.pos))/10000,
+                                intron = length(which(bootstrap_peaks.annot$Introns >= intron.pos))/10000,
+                                intron.exon = length(which(bootstrap_peaks.annot[,5] >= intron.exon.pos))/10000,
+                                intergenic = length(which(bootstrap_peaks.annot$Intergenic >= intergenic.pos))/10000,
+                                UTR.5 = length(which(bootstrap_peaks.annot[,7] >= UTR.5.pos))/10000,
+                                UTR.3 = length(which(bootstrap_peaks.annot[,8] >= UTR.3.pos))/10000,
+                                exon.1 = length(which(bootstrap_peaks.annot[,9] >= exon.1.pos))/10000,
+                                body = length(which(bootstrap_peaks.annot$Body >= body.pos))/10000 ),
+                              decreased = c(promoter = length(which(bootstrap_peaks.annot$Promoter <= promoter.pos))/10000,
+                                cgi = length(which(bootstrap_peaks.annot$CGI <= cgi.pos))/10000,
+                                exons = length(which(bootstrap_peaks.annot$Exons <= exon.pos))/10000,
+                                intron = length(which(bootstrap_peaks.annot$Introns <= intron.pos))/10000,
+                                intron.exon = length(which(bootstrap_peaks.annot[,5] <= intron.exon.pos))/10000,
+                                intergenic = length(which(bootstrap_peaks.annot$Intergenic >= intergenic.pos))/10000,
+                                UTR.5 = length(which(bootstrap_peaks.annot[,7] <= UTR.5.pos))/10000,
+                                UTR.3 = length(which(bootstrap_peaks.annot[,8] <= UTR.3.pos))/10000,
+                                exon.1 = length(which(bootstrap_peaks.annot[,9] <= exon.1.pos))/10000,
+                                body = length(which(bootstrap_peaks.annot$Body <= body.pos))/10000 )))
+      
+      
+      bootstrap.pval.full.hits #126 hits - nothing significant
+      bootstrap.pval.pos <- data.frame(cbind(bootstrap.pval.pos, adj_increased = p.adjust(bootstrap.pval.pos[,1], method="BH"), 
+                                             adj_decreased = p.adjust(bootstrap.pval.pos[,2], method="BH")))
+      bootstrap.pval.pos #75 hits - nothing significant
+      bootstrap.pval.neg <- data.frame(cbind(bootstrap.pval.neg, adj_increased = p.adjust(bootstrap.pval.neg[,1], method="BH"), 
+                                             adj_decreased = p.adjust(bootstrap.pval.neg[,2], method="BH")))
+      bootstrap.pval.neg #51 hits - nothing significant
+      
+      
+      
+```
+
+*DRD4 DMR*
+```{r}
+
+drd4.raw <- all.adjusted.peaks.cpm[which(rownames(all.adjusted.peaks.cpm) == "chr1:214281174:214281640"),]
+head(drd4.raw)
+drd4.melt <- melt(drd4.raw)
+drd4.melt$group <- NA
+drd4.melt$group[grep("C", rownames(drd4.melt))] <- "C"
+drd4.melt$group[grep("PF", rownames(drd4.melt))] <- "PF"
+drd4.melt$group[grep("E", rownames(drd4.melt))] <- "PAE"
+drd4.melt$age <- c(rep(1,12), rep(8,12), rep(15,12), rep(22,12))
+head(drd4.melt)
+drd4.melt$group <- factor(drd4.melt$group, levels = c("C","PF","PAE"))
+write.csv(drd4.melt, "~/drd4.raw.dev.csv")
+
+drd4.melt.mean <- data.frame(group = rep(c("C","PAE","PF"),4), age = c(1,1,1,8,8,8,15,15,15,22,22,22)) 
+drd4.melt.mean$value <- round(unlist(lapply(0:11, function(x){mean(drd4.melt$value[(x*4)+(1:4)]) })),2)
+head(drd4.melt.mean)
+drd4.melt.mean$group <- factor(drd4.melt.mean$group, levels = c("C","PF","PAE"))
+
+ggplot(drd4.melt[1:12,], aes(group, value, fill=group))+
+  #geom_violin(size=0.6)+
+  geom_boxplot(width=0.5, outlier.colour ="white")+
+  scale_fill_manual(values = c("blue","darkgreen","red"))+
+  ylim(0,2)+
+  ylab("Reads per kilobase per million")+
+  xlab("Treatment Group")+
+  theme_bw()+
+  theme(panel.grid.major.y = element_line(size=0.8, color="grey", linetype="dotted"))+
+  ggtitle("DMR from MeDIP-seq")+
+  theme(
+    axis.text.y = element_text(size=18, color="black"),
+    axis.text.x = element_text(size=18, color="black"),
+    axis.title.y = element_text(size=25, color="black"),
+    axis.title.x = element_text(size=25, color="black"),
+    plot.title = element_text(face="bold", size=25),
+    legend.text = element_text(size=18),
+    legend.title = element_text(colour="white")
+  )+
+  geom_text(data = drd4.melt.mean[1:3,], aes(group, y = 0, label = value), size=6)
+  
+
+
+```
+
+*IFIH1 DMR*
+```{r}
+
+ifih1.raw <- all.adjusted.peaks.cpm[which(rownames(all.adjusted.peaks.cpm) == "chr3:48561559:48561925"),]
+head(ifih1.raw)
+ifih1.melt <- melt(ifih1.raw)
+ifih1.melt$group <- NA
+ifih1.melt$group[grep("C", rownames(ifih1.melt))] <- "C"
+ifih1.melt$group[grep("PF", rownames(ifih1.melt))] <- "PF"
+ifih1.melt$group[grep("E", rownames(ifih1.melt))] <- "PAE"
+ifih1.melt$age <- c(rep(1,12), rep(8,12), rep(15,12), rep(22,12))
+head(ifih1.melt)
+ifih1.melt$group <- factor(ifih1.melt$group, levels = c("C","PF","PAE"))
+write.csv(ifih1.melt, "~/ifih1.raw.dev.csv")
+
+
+```
+
+
