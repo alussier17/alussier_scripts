@@ -6,6 +6,9 @@
 
 ### 2. Normalize and correct data
     • Normalization_developmental.Rmd
+        • Data filtering
+        • RPKM normalization
+        • ComBat correction
     
 ### 3. Analyze data and plot results
     • Analysis_developmental.Rmd
