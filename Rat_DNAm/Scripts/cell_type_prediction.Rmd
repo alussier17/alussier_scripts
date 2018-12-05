@@ -1,0 +1,139 @@
+---
+title: "cell_type_prediction"
+output: html_document
+---
+*Cell type proportion script*
+```{r}
+# Expression data obtained from Cahoy et al. 2008 - http://www.jneurosci.org/content/28/1/264.full
+setwd("~/cell_type_prediction/")
+neuron.set <- read.csv("~/cell_type_prediction/neuron_genes_cahoy08.csv")
+head(neuron.set)
+dim(neuron.set)
+plot(density(neuron.set$Fold_enriched_neurons))
+length(which(neuron.set$Fold_enriched_neurons > 15)) #178 genes
+neuron.top <- neuron.set[which(neuron.set$Fold_enriched_neurons > 15),][1:50,]
+
+astro.set <- read.csv("~/cell_type_prediction/astrocyte_genes_cahoy08.csv")
+head(astro.set)
+dim(astro.set)
+length(which(astro.set$Fold_enrichment_astrocytes > 15)) #104 genes
+astro.top <- astro.set[which(astro.set$Fold_enrichment_astrocytes > 15),][1:50,]
+
+OG.set <- read.csv("~/cell_type_prediction/oligodendrocyte_genes_cahoy08.csv")
+head(OG.set)
+dim(OG.set)
+length(which(OG.set$Fold_enriched_OG > 3)) #70 genes
+OG.top <- OG.set[which(OG.set$Fold_enriched_OG > 15),][1:50,]
+
+filter <- as.character(neuron.set$gene[which(neuron.set$gene %in% astro.set$gene)])
+filter <- c(filter, as.character(neuron.set$gene[which(neuron.set$gene %in% OG.set$gene)]))
+filter <- c(filter, as.character(astro.set$gene[which(astro.set$gene %in% OG.set$gene)]))
+filter
+
+neuron.set.filt <- neuron.set[-c(which(neuron.set$gene %in% filter)),]
+neuron.set.filt <- neuron.set.filt[which(neuron.set.filt$Fold_enriched_neurons > 5),]
+dim(neuron.set.filt)
+astro.set.filt <- astro.set[-c(which(astro.set$gene %in% filter)),]
+astro.set.filt <- astro.set.filt[which(astro.set.filt$Fold_enrichment_astrocytes > 5),]
+dim(astro.set.filt)
+OG.set.filt <- OG.set[-c(which(OG.set$gene %in% filter)),]
+OG.set.filt <- OG.set.filt[which(OG.set.filt$Fold_enriched_OG > 5),]
+dim(OG.set.filt)
+
+# making sure there are no overlaps
+which(neuron.set$gene %in% astro.set$gene)
+which(neuron.set$gene %in% OG.set$gene)
+which(astro.set$gene %in% OG.set$gene)
+```
+
+
+#cell type differences - cell type DMRs linear model only
+```{r}
+#Load data from first part of the developmental analysis
+load("~/Rscripts/all.combat.adjusted.cpm.Rdata")
+
+cell.type.dmrs <- raw.all.peaks.combat[-which(rownames(raw.all.peaks.combat) %in% rownames(raw.all.peaks.combat.2)),]
+dim(cell.type.dmrs)
+
+cell.type.dge <- DGEList(counts = cell.type.dmrs[,1:48], genes=rownames(cell.type.dmrs), group=metadata[1:48,3], 
+                         norm.factors = NULL, remove.zeros=TRUE, lib.size = as.numeric(all.filt.counts))
+cell.type.dge$samples <- corr.peaks.dge$samples
+cell.type.dge <- estimateCommonDisp(cell.type.dge)
+cell.type.dge  <- estimateTagwiseDisp(cell.type.dge )
+
+cell.type.dge$samples$age <- as.factor(corr.peaks.dge$samples$age)
+cell.type.dge$samples$breeding <- factor(cell.type.dge$samples$breeding)
+
+cell.type.matrix <- model.matrix(~0+group*age+breeding, data= cell.type.dge$samples)
+colnames(cell.type.matrix)
+colnames(cell.type.matrix) <- c("Con","PAE","PF","age8","age15","age22","dev4","dev5","NYB", 
+                                "PAEage8", "PFage8", "PAEage15", "PFage15","PAEage22","PFage22")
+
+cell.type.model <- cell.type.dge
+cell.type.model <- estimateGLMCommonDisp(cell.type.model, cell.type.matrix)
+cell.type.model <- estimateGLMTrendedDisp(cell.type.model, cell.type.matrix)
+cell.type.model <- estimateGLMTagwiseDisp(cell.type.model, cell.type.matrix)
+plotBCV(cell.type.model)
+cell.type.fit <- glmFit(cell.type.model, cell.type.matrix)
+
+
+# PAE vs Con
+cell.type.lrt <- glmLRT(cell.type.fit, contrast=makeContrasts(PAE-Con, levels=cell.type.matrix))  
+cell.type.toptags <- topTags(cell.type.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(cell.type.toptags$table$PValue))
+cell.type.sig <- cell.type.toptags[cell.type.toptags$table$FDR<0.25,] 
+dim(cell.type.sig) #11
+dev.annot[which(dev.annot$genes %in% neuron.dmrs[which(neuron.dmrs %in% cell.type.sig$table$gene)]),] #6 neuronal
+dev.annot[which(dev.annot$genes %in% OG.dmrs[which(OG.dmrs %in% cell.type.sig$table$gene)]),] 
+dev.annot[which(dev.annot$genes %in% astro.dmrs[which(astro.dmrs %in% cell.type.sig$table$gene)]),] 
+
+#PAE vs PF
+cell.type.lrt.PAEvPF <- glmLRT(cell.type.fit, contrast=makeContrasts(PAE-PF, levels=cell.type.matrix))  
+cell.type.toptags.PAEvPF <- topTags(cell.type.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(cell.type.toptags.PAEvPF$table$PValue))
+cell.type.sig.PAEvPF <- cell.type.toptags.PAEvPF[cell.type.toptags.PAEvPF$table$FDR<0.25,] 
+dim(cell.type.sig.PAEvPF) #2
+which(neuron.dmrs %in% cell.type.sig.PAEvPF$table$gene) #1 
+which(astro.dmrs %in% cell.type.sig.PAEvPF$table$gene) #1 
+
+# PF vs Con
+cell.type.lrt.PFvC <- glmLRT(cell.type.fit, contrast=makeContrasts(PF-Con, levels=cell.type.matrix))  
+cell.type.toptags.PFvC <- topTags(cell.type.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(cell.type.toptags.PFvC$table$PValue))
+cell.type.sig.PFvC <- cell.type.toptags.PFvC[cell.type.toptags.PFvC$table$FDR<0.25,] 
+dim(cell.type.sig.PFvC) #0
+
+#HITS#
+cell.type.PAEvCvPF <- merge(cell.type.sig$table, cell.type.sig.PAEvPF$table, by="genes", all=F)
+cell.type.hits <- ((cell.type.PAEvCvPF[!cell.type.PAEvCvPF$genes %in% cell.type.sig.PFvC$table$genes,]))
+dim(cell.type.hits)
+head(cell.type.hits)  
+cell.type.hit.names <- dev.annot$name[which(dev.annot$genes %in% cell.type.hits$genes)]
+neuron.set.filt[which(neuron.set.filt$gene %in% cell.type.hit.names),] #6
+astro.set.filt[which(astro.set.filt$gene %in% cell.type.hit.names),] #5
+OG.set.filt[which(OG.set.filt$gene %in% cell.type.hit.names),] #3
+
+#Venn of overlaps
+par(mfrow=c(1,1))
+library(VennDiagram)
+
+v1 <-cell.type.sig$table$genes
+v2 <- cell.type.sig.PAEvPF$table$genes
+v3 <- cell.type.sig.PFvC$table$genes
+
+a <- venn(list(PAEvC= v1,PAEvPF= v2, PFvC= v3)) 
+a
+b <- cbind(a[,2],a[,3],a[,4],a[,1])
+colnames(b) <- c("PAEvC","PAEvPF","PFvC","Counts")
+class(b) <- "VennCounts"
+b[1,4]<-sum(b[,4])
+b
+vennDiagram(b, circle.col=c("#A50A16", "#347E35","#232F66"), main="Overlap of hits at FDR<0.1", cex=2)
+library(venneuler)
+v <- venneuler(c(A=500, B=20,C=1000,"A&B"=200, "A&C"=50,"B&C"=700))
+plot(v)
+
+
+```
+
+
