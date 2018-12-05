@@ -1,0 +1,198 @@
+---
+title: "Normalization_developmental"
+output: html_document
+---
+*LOADING METADATA*
+```{r}
+# METADATAA#
+# for all hypothalamus samples
+metadata <- read.csv("/home/alussier/Metadata_updated.csv",header=T)
+meta.all <- metadata[1:48,-61:-62,]
+meta.all <- meta.all[,c(-1,-6,-24,-25)]
+colnames(meta.all)
+write.table(meta.all, "~/metadata.all.hyp.txt", sep="\t", row.names=F, quote=F)
+str(meta.all)
+dim(meta.all)
+meta.all$Age <- as.numeric(gsub(0,1, meta.all$Age))
+meta.all$Tissue <- as.factor(meta.all$Tissue)
+meta.all$Breeding <- as.factor(meta.all$Breeding)
+meta.all$Extraction.round <- as.factor(meta.all$Extraction.round)
+meta.all$meDIP.round <- as.factor(meta.all$meDIP.round)
+  
+meta.all$Dam.final.weight..g.<- as.numeric(meta.all$Dam.final.weight..g.)
+meta.all$Litter.Size....of.pups.<-as.numeric(meta.all$Litter.Size....of.pups.)
+meta.all$meDIP.fold.enrichment.ratio <-as.numeric(meta.all$meDIP.fold.enrichment.ratio)
+head(meta.all)
+  
+meta_categorical<- (meta.all[,c(1,2,4,18,19)])  # input column numbers in meta that contain categorical variables
+meta_continuous<- (meta.all[,c(9:13,15:17,20,21)]) # input column numbers in meta that contain continuous variables
+str(meta_categorical)
+str(meta_continuous)
+
+install.packages("snowfall")
+library(snowfall)
+
+```
+
+*GETTING COUNTS FROM PEAKSETS - MAKING DGEList*
+```{r}
+# MAKING A DATA FRAME OF THE READS FOR EACH PEAK #
+load("/home/alussier/all.hyp.peakset.Rdata")
+all.peaks <- as.data.frame(cbind(all.peakset$peaks[[1]]$Reads,all.peakset$peaks[[2]]$Reads,all.peakset$peaks[[3]]$Reads,
+                                 all.peakset$peaks[[4]]$Reads,all.peakset$peaks[[5]]$Reads,all.peakset$peaks[[6]]$Reads,
+                                 all.peakset$peaks[[7]]$Reads,all.peakset$peaks[[8]]$Reads,all.peakset$peaks[[9]]$Reads,
+                                 all.peakset$peaks[[10]]$Reads,all.peakset$peaks[[11]]$Reads,all.peakset$peaks[[12]]$Reads,
+                                   
+                                 all.peakset$peaks[[13]]$Reads,all.peakset$peaks[[14]]$Reads,all.peakset$peaks[[15]]$Reads,
+                                 all.peakset$peaks[[16]]$Reads,all.peakset$peaks[[17]]$Reads,all.peakset$peaks[[18]]$Reads,
+                                 all.peakset$peaks[[19]]$Reads,all.peakset$peaks[[20]]$Reads,all.peakset$peaks[[21]]$Reads,
+                                 all.peakset$peaks[[22]]$Reads,all.peakset$peaks[[23]]$Reads,all.peakset$peaks[[24]]$Reads,
+                                   
+                                 all.peakset$peaks[[25]]$Reads,all.peakset$peaks[[26]]$Reads,all.peakset$peaks[[27]]$Reads,
+                                 all.peakset$peaks[[28]]$Reads,all.peakset$peaks[[29]]$Reads,all.peakset$peaks[[30]]$Reads,
+                                 all.peakset$peaks[[31]]$Reads,all.peakset$peaks[[32]]$Reads,all.peakset$peaks[[33]]$Reads,
+                                 all.peakset$peaks[[34]]$Reads,all.peakset$peaks[[35]]$Reads,all.peakset$peaks[[36]]$Reads,
+                                   
+                                 all.peakset$peaks[[37]]$Reads,all.peakset$peaks[[38]]$Reads,all.peakset$peaks[[39]]$Reads,
+                                 all.peakset$peaks[[40]]$Reads,all.peakset$peaks[[41]]$Reads,all.peakset$peaks[[42]]$Reads,
+                                 all.peakset$peaks[[43]]$Reads,all.peakset$peaks[[44]]$Reads,all.peakset$peaks[[45]]$Reads,
+                                 all.peakset$peaks[[46]]$Reads,all.peakset$peaks[[47]]$Reads,all.peakset$peaks[[48]]$Reads
+                                 ))
+library(DiffBind)
+row.names(all.peaks) <- paste(paste(all.peakset$peaks[[1]]$Chr, all.peakset$peaks[[1]]$Start, sep=":"), all.peakset$peaks[[1]]$End, sep="-")
+
+
+colnames(all.peaks) <- c("C1","C2","C3","C4","E1","E2","E3","E4","PF1","PF2","PF3","PF4",
+                          "C5","C6","C7","C8","E5","E6","E7","E8","PF5","PF6","PF7","PF8",
+                          "C9","C10","C11","C12","E9","E10","E11","E12","PF9","PF10","PF11","PF12",
+                          "C13","C14","C15","C16","E13","E14","E15","E16","PF13","PF14","PF15","PF16")
+head(all.peaks)
+dim(all.peaks)
+
+
+# ADJUSTING TO READS/KB - (takes a while...) 
+all.peak.sizes <- (as.numeric((all.peakset$peaks[[1]]$End-all.peakset$peaks[[1]]$Start)/1000))
+aps <- (as.numeric((all.peakset$peaks[[1]]$End-all.peakset$peaks[[1]]$Start)))
+quantile(aps)
+mean(aps)
+plot(density(ps))
+
+all.adjusted.peaks.list <- lapply(1:length(all.peak.sizes), function(x) {
+  all.peaks[x,]/all.peak.sizes[x] } )
+all.adjusted.peaks <- do.call(rbind, all.adjusted.peaks.list)
+head(all.adjusted.peaks)
+dim(all.adjusted.peaks)
+
+#REMOVING CHR Y
+all.peaks.filt <- data.frame(all.adjusted.peaks[-c(grep("chrY", rownames(all.adjusted.peaks))),])
+rownames(all.peaks.filt) <- rownames(all.adjusted.peaks)[-c(grep("chrY", rownames(all.adjusted.peaks)))]
+head(all.peaks.filt)
+dim(all.peaks.filt)
+
+save(all.peaks.filt, file="~/Rscripts/dev.all.peak.filts.Rdata")
+load("~/Rscripts/dev.all.peak.filts.Rdata")
+all.filt.counts <- lapply(1:ncol(all.peaks.filt), function(x) {sum(all.peaks.filt[,x])})
+
+#ADJUSTING TO RPKM, BUT WITH ONLY COUNTS IN PEAKS (not chrY)
+all.adjusted.peaks.cpm <- cpm(all.peaks.filt, lib.size =as.numeric(all.filt.counts, log=F))
+head(all.adjusted.peaks.cpm[,1])
+dim(all.adjusted.peaks.cpm)
+colnames(all.adjusted.peaks.cpm) <-  c("C1_P0","C2_P0","C3_P0","C4_P0","E1_P0","E2_P0","E3_P0","E4_P0","PF1_P0","PF2_P0","PF3_P0","PF4_P0",
+                          "C5_P8","C6_P8","C7_P8","C8_P8","E5_P8","E6_P8","E7_P8","E8_P8","PF5_P8","PF6_P8","PF7_P8","PF8_P8",
+                          "C9_P15","C10_P15","C11_P15","C12_P15","E9_P15","E10_P15","E11_P15","E12_P15","PF9_P15","PF10_P15","PF11_P15","PF12_P15",
+                          "C13_P22","C14_P22","C15_P22","C16_P22","E13_P22","E14_P22","E15_P22","E16_P22","PF13_P22","PF14_P22","PF15_P22","PF16_P22")
+quantile(cor(all.adjusted.peaks.cpm))
+par(cex=5, cex.axis=1.7)
+heatmap.2(cor(all.adjusted.peaks.cpm), col= col, trace="none", dendrogram="col", main="Pairwise Pearson Correlations")
+d <- cor(all.adjusted.peaks.cpm, method="spearman")
+plot(hclust(dist(1-d)), cex.axis=1.5, cex=1) # Sample tree 
+
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+
+library('ape')
+dd <- as.dendrogram(hclust(dist(1-d)))
+plot(dd, type="triangle")
+plot(as.phylo(hclust(dist(1-d))), type="unrooted")
+
+
+```
+
+*Combat correction*
+```{r}
+dim(all.adjusted.peaks.cpm)
+all.peaks.dge <- DGEList(counts = all.adjusted.peaks.cpm[,1:48], genes=rownames( all.adjusted.peaks.cpm), group=metadata[1:48,3], 
+                           norm.factors = NULL, remove.zeros=TRUE, lib.size = as.numeric(all.filt.counts))
+all.peaks.dge$samples$age <- meta.all[1:48,1]
+all.peaks.dge$samples$tissue <- meta.all[1:48,3]
+all.peaks.dge$samples$breeding <- meta.all[1:48,4]
+all.peaks.dge$samples$ext.rnd <- meta.all[1:48,18]
+all.peaks.dge$samples$meDIP.rnd <- meta.all[1:48,19]
+
+all.peaks.dge$samples$hyp_weight <- meta.all[1:48,17]
+all.peaks.dge$samples$dam.initial <- meta.all[1:48,9]
+all.peaks.dge$samples$dam.final <- meta.all[1:48,10]
+all.peaks.dge$samples$litter.size <- meta.all[1:48,11]
+all.peaks.dge$samples$avg.pup.weight <- meta.all[1:48,12]
+all.peaks.dge$samples$animal.weight <- meta.all[1:48,13]
+all.peaks.dge$samples$brain.with <- meta.all[1:48,15]
+all.peaks.dge$samples$brain.w.o <- meta.all[1:48,16]
+all.peaks.dge$samples$meDIP.FE <- meta.all[1:48,20]
+all.peaks.dge$samples$meDIP.spec <- meta.all[1:48,21]
+
+all.mod.com <- model.matrix(~group, data=all.peaks.dge$samples)
+all.batch.com <- all.peaks.dge$samples$meDIP.rnd
+
+all.peaks.combat1 <- ComBat(dat=all.adjusted.peaks.cpm,  batch=all.batch.com, mod=all.mod.com,
+                              par.prior=T, prior.plots=F)
+
+all.mod.com.2 <- model.matrix(~group+age, data=all.peaks.dge$samples)
+all.batch.com.2 <- all.peaks.dge$samples$ext.rnd
+all.peaks.combat <- ComBat(dat=all.peaks.combat1,  batch=all.batch.com.2, mod=all.mod.com,
+                              par.prior=T, prior.plots=F)
+
+
+meta_categorical<- (meta.all[,c(1,2,4,18,19)])  # input column numbers in meta that contain categorical variables
+meta_continuous<- (meta.all[,c(9:13,15:17,20,21)])
+PCA_full.corr <- princomp(all.peaks.combat2, cor=F) #cor=T when raw data
+Loadings.corr <- as.data.frame(unclass(PCA_full.corr$loadings))
+vars.corr <- PCA_full.corr$sdev^2
+Importance.corr <-vars.corr/sum(vars.corr)
+heat_scree_plot(Loadings.corr[,1:30], Importance.corr[1:30])
+
+
+all.peaks.combat2.backup<- all.peaks.combat2
+all.peaks.combat2[all.peaks.combat2<0]=min(all.peaks.combat2[all.peaks.combat2>0])
+head(all.peaks.combat2)
+
+e <- cor(all.peaks.combat2, method="spearman")
+plot(hclust(dist(1-e))) # Sample tree 
+
+heatmap.2(cor(all.peaks.combat2, method="pearson"),col=col, dendrogram="col", trace="none", main="Pairwise Pearson Correlations\n(post-ComBat)")
+
+#UNDOING COUNTS PER MILLION
+raw.all.peaks.combat.list <- lapply(1:length(all.filt.counts), function(x) {
+  all.peaks.combat2[,x]*(as.numeric(all.filt.counts[x])/1000000) } )
+raw.all.peaks.combat <- do.call(cbind, raw.all.peaks.combat.list)
+
+head(raw.all.peaks.combat)
+dim(raw.all.peaks.combat)
+
+colnames(raw.all.peaks.combat) <-  c("C1","C2","C3","C4","E1","E2","E3","E4","PF1","PF2","PF3","PF4",
+                          "C5","C6","C7","C8","E5","E6","E7","E8","PF5","PF6","PF7","PF8",
+                          "C9","C10","C11","C12","E9","E10","E11","E12","PF9","PF10","PF11","PF12",
+                          "C13","C14","C15","C16","E13","E14","E15","E16","PF13","PF14","PF15","PF16")
+head(raw.all.peaks.combat)
+
+
+save(raw.all.peaks.combat, file="~/Rscripts/all.combat.raw.Rdata")
+load("~/Rscripts/all.combat.raw.Rdata")
+
+all.combat.adjusted.cpm <- cpm(raw.all.peaks.combat, lib.size=unlist(all.filt.counts), log=F)
+head(all.combat.adjusted.cpm)
+dim(all.combat.adjusted.cpm)
+
+save(all.combat.adjusted.cpm, file="~/Rscripts/all.combat.adjusted.cpm.Rdata")
+load("~/Rscripts/all.combat.adjusted.cpm.Rdata")
+```
+
+
