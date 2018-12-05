@@ -9,10 +9,10 @@
   
   • Source: https://onlinelibrary.wiley.com/doi/full/10.1111/acer.12622
   
-  • Supplementary Materials
+  • [Supplementary Materials](/Rat_transcriptome_PAE/Supplementary_materials)
   
 
-## B. Scripts
+## B. [Scripts](/Rat_transcriptome_PAE/Scripts)
   • Simplified analysis
   • HPC analysis
   • PFC analysis
