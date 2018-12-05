@@ -9,7 +9,13 @@
         • Data filtering
         • RPKM normalization
         • ComBat correction
+        • Please note that this script might be missing some library() commands
     
 ### 3. Analyze data and plot results
     • Analysis_developmental.Rmd
-    • Final model used in manuscript
+        • Final glm used in manuscript
+        • Genomic enrichment analysis
+        • TFBS analysis
+        • ermineJ table generation
+        • Publication figures
+        • Please note that this script might be missing some library() commands
