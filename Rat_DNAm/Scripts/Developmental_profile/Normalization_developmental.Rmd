@@ -2,6 +2,16 @@
 title: "Normalization_developmental"
 output: html_document
 ---
+*Libraries*
+```{r}
+library(DiffBind)
+library(edgeR)
+library(extrafont)
+library(gplots)
+library(RColorBrewer)
+library(sva)
+```
+
 *LOADING METADATA*
 ```{r}
 # METADATAA#

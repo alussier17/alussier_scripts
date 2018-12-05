@@ -2,6 +2,27 @@
 title: "Analysis_developmental"
 output: html_document
 ---
+*Libraries*
+```{r}
+library(cowplot)
+library(DiffBind)
+library(edgeR)
+library(ENmisc)
+library(extrafont)
+library(ggplot2)
+library(gplots)
+library(gridExtra)
+library(limma)
+library(plyr)
+library(PWMEnrich)
+library(PWMEnrich.Mmusculus.background)
+library(RColorBrewer)
+library(reshape)
+library(snowfall)
+library(sva)
+library(VennDiagram)
+```
+
 *LOADING METADATA*
 ```{r}
 # METADATA#
@@ -28,9 +49,6 @@ meta_categorical<- (meta.all[,c(1,2,4,18,19)])  # input column numbers in meta t
 meta_continuous<- (meta.all[,c(9:13,15:17,20,21)]) # input column numbers in meta that contain continuous variables
 str(meta_categorical)
 str(meta_continuous)
-
-install.packages("snowfall")
-library(snowfall)
 
 ```
 
@@ -92,7 +110,7 @@ raw.all.peaks.combat.2 <- raw.all.peaks.combat.2[-(which(rownames(raw.all.peaks.
 raw.all.peaks.combat.2 <- raw.all.peaks.combat.2[-(which(rownames(raw.all.peaks.combat.2) %in% OG.dmrs)),]
 dim(raw.all.peaks.combat.2)
 dim(raw.all.peaks.combat)
-library(edgeR)
+
 
 corr.peaks.dge <- DGEList(counts = raw.all.peaks.combat.2[,1:48], genes=rownames(raw.all.peaks.combat.2), group=metadata[1:48,3], 
                            norm.factors = NULL, remove.zeros=TRUE, lib.size = as.numeric(all.filt.counts))
@@ -178,7 +196,6 @@ par(lwd=1)
 
 #Venn of overlaps
 par(mfrow=c(1,1))
-library(VennDiagram)
 
 v1 <-group.plus.age.sig$table$genes
 v2 <- group.plus.age.sig.PAEvPF$table$genes
@@ -245,14 +262,14 @@ colnames(dev.hits.simple)[1:2] <- c("group","age")
 dev.hits.simple <- data.frame(dev.hits.simple)
 groupColumns = c("group","age")
 dataColumns = colnames(dev.hits.simple)[3:ncol(dev.hits.simple)]
-library(plyr)
+
 dev.hits.simple.2 = ddply(dev.hits.simple, groupColumns, function(x) colMeans(x[dataColumns]))
 head(dev.hits.simple.2)
 dev.hits.simple.2 <- dev.hits.simple.2[c(1:4,9:12,5:8),] 
 
 
 (dev.hits.simple.2)[,1:2]
-library(reshape)
+
 dev.hits.simple.melt <- (melt(dev.hits.simple.2, id.vars=c("group","age")))
 dev.hits.simple.melt$group <- gsub(1, "C", dev.hits.simple.melt$group)
 dev.hits.simple.melt$group <- gsub(2, "PAE", dev.hits.simple.melt$group)
@@ -338,7 +355,7 @@ heatmap.3(GplusA.pos.hits.CPM, Rowv = T, Colv = T, trace="none", dendrogram = "c
 
 ```
 
-*Annotation of genomic regions*
+*Annotation and permutation analysis of genomic regions*
 ```{r}
 #Genomic Features
 load("~/region_bams/dev_peaks_annot/dev.peakset.annotation.Rdata")
@@ -575,8 +592,6 @@ write.table(dev.annot, file="~/ermineJ/20160504.dev.annot.txt", sep="\t",row.nam
 *PWMEnrich for TFBS*
 ```{r}
 
-library(PWMEnrich)
-library(PWMEnrich.Mmusculus.background)
 
 load("~/region_bams/dev_peaks_annot/dev.peakset.sequences.Rdata")
 length(dev.motif)
@@ -678,69 +693,6 @@ ggplot(data = dev.prop.melt[-c(7,21),], aes(x=tfbs, y = value, group= variable))
     strip.text = element_text(size = 25, face = "bold"))
 
 
-```
-
-#Permutation for significance of genomic locations*
-```{r}
-
-dim(group.plus.age.annot)
-      bootstrap_peaks_function.annot <-lapply(1:1000, function(x){
-        print(x)
-        set.seed(x)
-        Hit_number <- nrow(group.plus.age.annot[1])
-        rnd_peak <- group.plus.age.fit$genes[sample(1:nrow(group.plus.age.fit$genes),Hit_number),1]
-        annot_rnd <- dev.annot[which(dev.annot$genes%in%rnd_peak),]
-        head(annot_rnd)
-        annot_features <- (as.numeric(cbind(length(which(!is.na(annot_rnd$prom1500))),
-                                    length(which(!is.na(annot_rnd$cpg))),
-                                    length(which(!is.na(annot_rnd$exons) & is.na(annot_rnd$introns))),
-                                    length(which(!is.na(annot_rnd$introns) & is.na(annot_rnd$exons))),
-                                    length(which(!is.na(annot_rnd$exons) & !is.na(annot_rnd$introns))),
-                                    length(which(is.na(annot_rnd$name) & is.na(annot_rnd$cpg))),
-                                    length(which(!is.na(annot_rnd$UTR.5))),
-                                    length(which(!is.na(annot_rnd$UTR.3))),
-                                    length(which(!is.na(annot_rnd$exon.1))),
-                                    length(which(!is.na(annot_rnd$exons) | !is.na(annot_rnd$introns) | 
-                                                    !is.na(annot_rnd$UTR.5) | !is.na(annot_rnd$UTR.3)))
-           
-                                    )))
-        })
-      bootstrap_peaks.annot <- data.frame(do.call(rbind,bootstrap_peaks_function.annot))
-      colnames(bootstrap_peaks.annot) <- c("Promoter","CGI","Exons","Introns","Intron/exon","Intergenic", "5'UTR","3'UTR","1st Exon","Body") 
-      head(bootstrap_peaks.annot)
-      
-      bootstrap.pval <- data.frame(cbind(increased = c(promoter = length(which(bootstrap_peaks.annot$Promoter >= promoter.pos))/10000,
-                                cgi = length(which(bootstrap_peaks.annot$CGI >= cgi.pos))/10000,
-                                exons = length(which(bootstrap_peaks.annot$Exons >= exon.pos))/10000,
-                                intron = length(which(bootstrap_peaks.annot$Introns >= intron.pos))/10000,
-                                intron.exon = length(which(bootstrap_peaks.annot[,5] >= intron.exon.pos))/10000,
-                                intergenic = length(which(bootstrap_peaks.annot$Intergenic >= intergenic.pos))/10000,
-                                UTR.5 = length(which(bootstrap_peaks.annot[,7] >= UTR.5.pos))/10000,
-                                UTR.3 = length(which(bootstrap_peaks.annot[,8] >= UTR.3.pos))/10000,
-                                exon.1 = length(which(bootstrap_peaks.annot[,9] >= exon.1.pos))/10000,
-                                body = length(which(bootstrap_peaks.annot$Body >= body.pos))/10000 ),
-                              decreased = c(promoter = length(which(bootstrap_peaks.annot$Promoter <= promoter.pos))/10000,
-                                cgi = length(which(bootstrap_peaks.annot$CGI <= cgi.pos))/10000,
-                                exons = length(which(bootstrap_peaks.annot$Exons <= exon.pos))/10000,
-                                intron = length(which(bootstrap_peaks.annot$Introns <= intron.pos))/10000,
-                                intron.exon = length(which(bootstrap_peaks.annot[,5] <= intron.exon.pos))/10000,
-                                intergenic = length(which(bootstrap_peaks.annot$Intergenic >= intergenic.pos))/10000,
-                                UTR.5 = length(which(bootstrap_peaks.annot[,7] <= UTR.5.pos))/10000,
-                                UTR.3 = length(which(bootstrap_peaks.annot[,8] <= UTR.3.pos))/10000,
-                                exon.1 = length(which(bootstrap_peaks.annot[,9] <= exon.1.pos))/10000,
-                                body = length(which(bootstrap_peaks.annot$Body <= body.pos))/10000 )))
-      
-      
-      bootstrap.pval.full.hits #126 hits - nothing significant
-      bootstrap.pval.pos <- data.frame(cbind(bootstrap.pval.pos, adj_increased = p.adjust(bootstrap.pval.pos[,1], method="BH"), 
-                                             adj_decreased = p.adjust(bootstrap.pval.pos[,2], method="BH")))
-      bootstrap.pval.pos #75 hits - nothing significant
-      bootstrap.pval.neg <- data.frame(cbind(bootstrap.pval.neg, adj_increased = p.adjust(bootstrap.pval.neg[,1], method="BH"), 
-                                             adj_decreased = p.adjust(bootstrap.pval.neg[,2], method="BH")))
-      bootstrap.pval.neg #51 hits - nothing significant
-      
-      
-      
 ```
 
 *DRD4 DMR*
