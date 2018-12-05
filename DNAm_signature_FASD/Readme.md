@@ -1,4 +1,4 @@
-# Information on DNA methylation signature of human fetal alcohol spectrum disorder.
+# DNA methylation signature of human fetal alcohol spectrum disorder.
 
 ## A. Manuscript
   • Citation: Portales-Casamar E*, Lussier AA*, Jones MJ, MacIsaac JL, Edgar RD, Mah SM, Barhdadi A, Provost S, Lemieux-Perreault LP, Cynader MS, Chudley AE, Dubé MP, Reynolds JN, Pavlidis P, Kobor MS. DNA methylation signature of human fetal
