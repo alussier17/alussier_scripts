@@ -15,5 +15,6 @@
 
 
 ## b. Scripts
-  • Reduce representation bisulfite sequencing alignments
+  • Reduced representation bisulfite sequencing alignments (RRBS)
+  
   • More to come
