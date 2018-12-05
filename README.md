@@ -41,7 +41,7 @@
     C. Data in Brief manuscript
     D. Project summary
     
-# 3. [Other manuscripts](/Other)
+# 3. [Other publications and scripts](/Other)
     A. Manuscripts
         • Molecular pathways underpinning ethanol-induced neurodegeneration. Frontiers in Genetics, 2014.
         • Epigenetics studies of fetal alcohol spectrum disorder: where are we now? Epigenomics, 2016.
