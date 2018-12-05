@@ -1,6 +1,6 @@
 
 
-final2
+load(final2.Rdata)
 load("~/NDN_FASD_I/svs2.RData")
 load("~/NDN_FASD_I/svs.cauc.RData")
 cluster1.samp <- read.table("~/NDN_FASD_I/Cluster1_Samples.txt")
