@@ -13,18 +13,27 @@
 
 ## B. [Scripts](/Rat_DNAm_sex_differences/Scripts)
   • Preprocessing
-        - 1.filtering.sh:       Filtering bam files
+  
+        - 1.filtering.sh:       Filtering bam files 
+        
         - 2.peaks.sh:           Calling meDIP-seq peaks
+        
         - 3.peakset.diff.R:     Generating the "diff" peakset for downstream analyses
+        
         - 4.peakset.processing: Processing the peakset file for input into edgeR and downstream analyses
     
   • Analysis  
+  
         - 1.diff.linear.models.Rmd: Script for edgeR analyses of sex-concordant and sex-specific differentially methylated regions
+        
         - 2.diff.analysis.Rmd:      Analyses of results from linear models (main figures, overlap with [initial study](/Rat_DNAm/), gene ontology)
+        
         - 3. ASD.overlap.Rmd:       Checking overlap with results of studies of autism spectrum disorder, summarized in ASD_genes_summary_2021-08-12.xlsx
   
   • Annotation
+  
         - 1.diff.annotation.Rmd:   Script to generate annotation specific to the "diff" peakset, shown in diff.peaks.info.bed
+        
         - Bed files were downloaded from the UCSC genome browser using the settings shown in annotation.info.png
            
 ## C. Project summary
