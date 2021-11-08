@@ -11,7 +11,7 @@
 
   • [Supplementary materials](/Rat_DNAm_sex_differences/Supplementary_materials)
 
-## B. [Scripts](/Rat_DNAm/Scripts)
+## B. [Scripts](/Rat_DNAm_sex_differences/Scripts)
   • 1.Preprocessing
         - 1.filtering.sh:       Filtering bam files
         - 2.peaks.sh:           Calling meDIP-seq peaks
