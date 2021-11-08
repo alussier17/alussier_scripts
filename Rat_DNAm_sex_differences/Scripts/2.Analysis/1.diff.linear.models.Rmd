@@ -1,0 +1,260 @@
+---
+title: "Linear models to identify sex-concordant and sex-specific DMRs"
+output: html_document
+---
+*Loading libraries*
+```{r}
+library(broom)
+library(data.table)
+library(DiffBind)
+library(dplyr)
+library(edgeR)
+library(ggplot2)
+library(gplots)
+library(grid)
+library(gridExtra)
+library(limma)
+library(RColorBrewer)
+library(reshape)
+library(sva)
+library(VennDiagram)
+
+setwd("location_of_data")
+load("location_of_data/diff.dge.Rdata") #edgeR object from preprocessing script.
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+```
+
+*LINEAR MODELING - group+sex - sex-concordant*
+```{r}
+load("location_of_data/diff.dge.Rdata")
+diff.model.mat <- model.matrix(~0+group+sex, data= diff.dge$samples)
+colnames(diff.model.mat)
+colnames(diff.model.mat) <- c("Con","PF","PAE", "M")
+
+diff.model <- diff.dge
+diff.model <- estimateGLMCommonDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTrendedDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTagwiseDisp(diff.model, diff.model.mat)
+plotBCV(diff.model)
+diff.fit <- glmFit(diff.model, diff.model.mat)
+
+# PAE vs Con
+diff.lrt <- glmLRT(diff.fit, contrast= makeContrasts(PAE-Con, levels=diff.model.mat))  
+diff.toptags <- topTags(diff.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags$table$PValue))
+diff.sig <- diff.toptags[diff.toptags$table$FDR<0.05,] 
+dim(diff.sig) 
+
+#PAE vs PF
+diff.lrt.PAEvPF <- glmLRT(diff.fit, contrast=makeContrasts(PAE-PF, levels=diff.model.mat))  
+diff.toptags.PAEvPF <- topTags(diff.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PAEvPF$table$PValue))
+diff.sig.PAEvPF <- diff.toptags.PAEvPF[diff.toptags.PAEvPF$table$FDR<0.05,] 
+dim(diff.sig.PAEvPF) 
+
+
+# PF vs Con
+diff.lrt.PFvC <- glmLRT(diff.fit, contrast=makeContrasts(PF-Con, levels=diff.model.mat))  
+diff.toptags.PFvC <- topTags(diff.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PFvC$table$PValue))
+diff.sig.PFvC <- diff.toptags.PFvC[diff.toptags.PFvC$table$FDR<0.05,] 
+dim(diff.sig.PFvC)
+
+
+#HITS
+diff.PAEvCvPF <- merge(diff.sig$table, diff.sig.PAEvPF$table, by="genes", all=F)
+diff.hits <- ((diff.PAEvCvPF[!diff.PAEvCvPF$genes %in% diff.sig.PFvC$table$genes,]))
+dim(diff.hits)
+
+#making the result frames
+diff.toptags.PAEvC.GpS <- diff.toptags
+diff.toptags.PAEvPF.GpS <- diff.toptags.PAEvPF
+diff.toptags.PFvC.GpS <- diff.toptags.PFvC
+dim(diff.toptags.PFvC.GpS)
+diff.sig.PAEvC.GpS <- diff.sig
+diff.sig.PAEvPF.GpS <- diff.sig.PAEvPF
+diff.sig.PFvC.GpS <- diff.sig.PFvC
+diff.hits.GpS <- diff.hits
+dim(diff.hits.GpS)
+
+#making the results frames for PF
+diff.hits.GpS.PF <- merge(diff.toptags.PAEvPF.GpS$table[diff.toptags.PAEvPF.GpS$table$FDR<=0.05,], 
+              diff.toptags.PFvC.GpS$table[diff.toptags.PFvC.GpS$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.GpS.PF)
+
+
+#making the results frames for shared PF and PAE
+diff.hits.GpS.shared <- merge(diff.toptags.PAEvC.GpS$table[diff.toptags.PAEvC.GpS$table$FDR<=0.05,], 
+              diff.toptags.PFvC.GpS$table[diff.toptags.PFvC.GpS$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.GpS.shared)
+length(which(diff.hits.GpS.shared$logFC.x <0 & diff.hits.GpS.shared$logFC.y <0 )) #510 same direction down
+length(which(diff.hits.GpS.shared$logFC.x >0 & diff.hits.GpS.shared$logFC.y >0 )) #289 same direction up
+
+#save(diff.toptags.PAEvC.GpS, diff.toptags.PAEvPF.GpS, diff.toptags.PFvC.GpS, 
+#     diff.sig.PAEvC.GpS, diff.sig.PAEvPF.GpS, diff.sig.PFvC.GpS, diff.hits.GpS,diff.hits.GpS.shared,k byee
+#     file = "results/diff.GpS.results.Rdata")
+load("results/diff.GpS.results.Rdata", verbose=T)
+
+venn(list(PAEvPF = diff.sig.PAEvPF.GpS$table$genes,
+          PFvC = diff.sig.PFvC.GpS$table$genes,
+          PAEvC = diff.sig.PAEvC.GpS$table$genes))
+
+rm(diff.model,diff.lrt,diff.toptags,diff.sig,
+   diff.lrt.PAEvPF, diff.toptags.PAEvPF, diff.sig.PAEvPF,
+   diff.lrt.PFvC, diff.toptags.PFvC, diff.sig.PFvC, 
+   diff.PAEvCvPF,diff.hits)
+
+```
+
+*LINEAR MODELING - Females only*
+```{r}
+diff.model.mat <- model.matrix(~0+group, data= diff.dge$samples[which(diff.dge$samples$sex =="F"),])
+colnames(diff.model.mat)
+colnames(diff.model.mat) <- c("Con","PF","PAE")
+
+diff.model <- diff.dge[,which(diff.dge$samples$sex =="F")]
+diff.model <- estimateGLMCommonDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTrendedDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTagwiseDisp(diff.model, diff.model.mat)
+plotBCV(diff.model)
+diff.fit <- glmFit(diff.model, diff.model.mat)
+
+# PAE vs Con
+diff.lrt <- glmLRT(diff.fit, contrast= makeContrasts(PAE-Con, levels=diff.model.mat))  
+diff.toptags <- topTags(diff.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags$table$PValue))
+diff.sig <- diff.toptags[diff.toptags$table$FDR<0.05,] 
+dim(diff.sig) 
+
+#PAE vs PF
+diff.lrt.PAEvPF <- glmLRT(diff.fit, contrast=makeContrasts(PAE-PF, levels=diff.model.mat))  
+diff.toptags.PAEvPF <- topTags(diff.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PAEvPF$table$PValue))
+diff.sig.PAEvPF <- diff.toptags.PAEvPF[diff.toptags.PAEvPF$table$FDR<0.05,] 
+dim(diff.sig.PAEvPF) 
+
+# PF vs Con
+diff.lrt.PFvC <- glmLRT(diff.fit, contrast=makeContrasts(PF-Con, levels=diff.model.mat))  
+diff.toptags.PFvC <- topTags(diff.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PFvC$table$PValue))
+diff.sig.PFvC <- diff.toptags.PFvC[diff.toptags.PFvC$table$FDR<0.05,] 
+dim(diff.sig.PFvC)
+
+#HITS
+diff.PAEvCvPF <- merge(diff.sig$table, diff.sig.PAEvPF$table, by="genes", all=F)
+diff.hits <- ((diff.PAEvCvPF[!diff.PAEvCvPF$genes %in% diff.sig.PFvC$table$genes,]))
+dim(diff.hits)
+
+#making the result frames
+diff.toptags.PAEvC.Fem <- diff.toptags
+diff.toptags.PAEvPF.Fem <- diff.toptags.PAEvPF
+diff.toptags.PFvC.Fem <- diff.toptags.PFvC
+diff.sig.PAEvC.Fem <- diff.sig
+diff.sig.PAEvPF.Fem <- diff.sig.PAEvPF
+diff.sig.PFvC.Fem <- diff.sig.PFvC
+diff.hits.Fem <- diff.hits
+dim(diff.hits.Fem)
+
+#making the results frames for PF
+diff.hits.Fem.PF <- merge(diff.toptags.PAEvPF.Fem$table[diff.toptags.PAEvPF.Fem$table$FDR<=0.05,], 
+              diff.toptags.PFvC.Fem$table[diff.toptags.PFvC.Fem$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.Fem.PF)
+
+#making the results frames for shared PAE and PF
+diff.hits.Fem.shared <- merge(diff.toptags.PAEvC.Fem$table[diff.toptags.PAEvC.Fem$table$FDR<=0.05,], 
+              diff.toptags.PFvC.Fem$table[diff.toptags.PFvC.Fem$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.Fem.shared)
+length(which(diff.hits.Fem.shared$logFC.x <0 & diff.hits.Fem.shared$logFC.y <0 )) #83 same direction down
+length(which(diff.hits.Fem.shared$logFC.x >0 & diff.hits.Fem.shared$logFC.y >0 )) #114 same direction down
+
+#save(diff.toptags.PAEvC.Fem, diff.toptags.PAEvPF.Fem, diff.toptags.PFvC.Fem,
+#     diff.sig.PAEvC.Fem, diff.sig.PAEvPF.Fem, diff.sig.PFvC.Fem, diff.hits.Fem,
+#     file = "results/diff.Fem.results.Rdata")
+
+load("results/diff.Fem.results.Rdata")
+
+venn(list(PAEvPF = diff.sig.PAEvPF.Fem$table$genes,
+          PFvC = diff.sig.PFvC.Fem$table$genes,
+          PAEvC = diff.sig.PAEvC.Fem$table$genes))
+
+rm(diff.model,diff.lrt,diff.toptags,diff.sig,
+   diff.lrt.PAEvPF, diff.toptags.PAEvPF, diff.sig.PAEvPF,
+   diff.lrt.PFvC, diff.toptags.PFvC, diff.sig.PFvC, 
+   diff.PAEvCvPF,diff.hits)
+```
+
+*LINEAR MODELING - Males only*
+```{r}
+diff.model.mat <- model.matrix(~0+group, data= diff.dge$samples[which(diff.dge$samples$sex =="M"),])
+colnames(diff.model.mat)
+colnames(diff.model.mat) <- c("Con","PF","PAE")
+
+diff.model <- diff.dge[,which(diff.dge$samples$sex =="M")]
+diff.model <- estimateGLMCommonDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTrendedDisp(diff.model, diff.model.mat)
+diff.model <- estimateGLMTagwiseDisp(diff.model, diff.model.mat)
+plotBCV(diff.model)
+diff.fit <- glmFit(diff.model, diff.model.mat)
+
+# PAE vs Con
+diff.lrt <- glmLRT(diff.fit, contrast= makeContrasts(PAE-Con, levels=diff.model.mat))  
+diff.toptags <- topTags(diff.lrt, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags$table$PValue))
+diff.sig <- diff.toptags[diff.toptags$table$FDR<0.05,] 
+dim(diff.sig) 
+
+#PAE vs PF
+diff.lrt.PAEvPF <- glmLRT(diff.fit, contrast=makeContrasts(PAE-PF, levels=diff.model.mat))  
+diff.toptags.PAEvPF <- topTags(diff.lrt.PAEvPF, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PAEvPF$table$PValue))
+diff.sig.PAEvPF <- diff.toptags.PAEvPF[diff.toptags.PAEvPF$table$FDR<0.05,] 
+dim(diff.sig.PAEvPF) 
+
+# PF vs Con
+diff.lrt.PFvC <- glmLRT(diff.fit, contrast=makeContrasts(PF-Con, levels=diff.model.mat))  
+diff.toptags.PFvC <- topTags(diff.lrt.PFvC, n="inf", adjust.method="BH", sort.by="PValue")
+plot(density(diff.toptags.PFvC$table$PValue))
+diff.sig.PFvC <- diff.toptags.PFvC[diff.toptags.PFvC$table$FDR<0.05,] 
+dim(diff.sig.PFvC)
+
+#HITS
+diff.PAEvCvPF <- merge(diff.sig$table, diff.sig.PAEvPF$table, by="genes", all=F)
+diff.hits <- ((diff.PAEvCvPF[!diff.PAEvCvPF$genes %in% diff.sig.PFvC$table$genes,]))
+dim(diff.hits)
+
+#making the result frames
+diff.toptags.PAEvC.Male <- diff.toptags
+diff.toptags.PAEvPF.Male <- diff.toptags.PAEvPF
+diff.toptags.PFvC.Male <- diff.toptags.PFvC
+diff.sig.PAEvC.Male <- diff.sig
+diff.sig.PAEvPF.Male <- diff.sig.PAEvPF
+diff.sig.PFvC.Male <- diff.sig.PFvC
+diff.hits.Male <- diff.hits
+dim(diff.hits.Male)
+
+#making the results frames for PF
+diff.hits.Male.PF <- merge(diff.toptags.PAEvPF.Male$table[diff.toptags.PAEvPF.Male$table$FDR<=0.05,], 
+              diff.toptags.PFvC.Male$table[diff.toptags.PFvC.Male$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.Male.PF)
+
+#making the results frames for shared PAE and PF
+diff.hits.Male.shared <- merge(diff.toptags.PAEvC.Male$table[diff.toptags.PAEvC.Male$table$FDR<=0.05,], 
+              diff.toptags.PFvC.Male$table[diff.toptags.PFvC.Male$table$FDR<=0.05,], by = "genes", all=F)
+dim(diff.hits.Male.shared)
+length(which(diff.hits.Male.shared$logFC.x <0 & diff.hits.Male.shared$logFC.y <0 )) #10 same direction down
+length(which(diff.hits.Male.shared$logFC.x >0 & diff.hits.Male.shared$logFC.y >0 )) #9 same direction down
+
+#save(diff.toptags.PAEvC.Male, diff.toptags.PAEvPF.Male, diff.toptags.PFvC.Male, 
+#     diff.sig.PAEvC.Male, diff.sig.PAEvPF.Male, diff.sig.PFvC.Male, diff.hits.Male,
+#     file = "results/diff.Male.results.Rdata")
+load("results/diff.Male.results.Rdata")
+
+venn(list(PAEvPF = diff.sig.PAEvPF.Male$table$genes,
+          PFvC = diff.sig.PFvC.Male$table$genes,
+          PAEvC = diff.sig.PAEvC.Male$table$genes))
+
+rm(diff.model,diff.lrt,diff.toptags,diff.sig,
+   diff.lrt.PAEvPF, diff.toptags.PAEvPF, diff.sig.PAEvPF,
+   diff.lrt.PFvC, diff.toptags.PFvC, diff.sig.PFvC, 
+   diff.PAEvCvPF,diff.hits)
+```

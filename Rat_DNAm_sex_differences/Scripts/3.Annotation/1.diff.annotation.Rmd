@@ -1,0 +1,376 @@
+---
+title: "Annotation for sex diff peakset"
+output: html_document
+---
+*Libraries*
+```{r}
+library(dplyr)
+library(data.table)
+setwd("location_of_data")
+```
+
+*Loading peakset*
+```{r}
+load("diff.rpkm.filt.combat.Rdata")
+head(diff.rpkm.filt.combat)
+diff.peaks.info <- data.frame(genes = rownames(diff.rpkm.filt.combat))
+head(diff.peaks.info)
+ 
+diff.peaks.info$chr <- strsplit2(diff.peaks.info$genes, ":")[,1] 
+diff.peaks.info$start <- strsplit2(strsplit2(diff.peaks.info$genes, ":")[,2], "-")[,1]
+diff.peaks.info$end <- strsplit2(strsplit2(diff.peaks.info$genes, ":")[,2], "-")[,2]
+head(diff.peaks.info)
+diff.peaks.info <- diff.peaks.info[,c(2:4,1)]
+head(diff.peaks.info)
+write.table(diff.peaks.info, file = "annotation_diff/diff.peaks.info.bed", 
+            sep='\t', quote=F, col.names = T, row.names = F)
+
+#altering the  whole_gene_refseq.bed file to include 1500 upstream and 1500 downstream
+whole <- fread("./bed_files/whole_gene_refseq.bed")
+whole$V2 <- whole$V2-1500
+whole$V3 <- whole$V3+1500
+whole$V2[which(whole$V2<0)] <-1 
+write.table(whole, file = "./annotation_diff/bed_files/whole_gene_refseq_tssdown.bed",
+            sep='\t', quote=F, col.names=F, row.names = F)
+rm(whole)
+#table goes into the following function in bash within the bed_files directory:
+# for i in * ; do echo $i; bedtools intersect -a ../diff.peaks.info.bed -b $i -wo > ../diff.$i; done
+#basically, it is this:
+#bedtools intersect -a diff.peaks.info.bed -b bed_files/exons_refseq.bed -wo > diff.exons.bed
+#
+
+#this will be the data frame that I add to
+annot <- data.frame(genes = diff.peaks.info$genes)
+
+```
+
+### IMPORTANT NOTE ###
+# because I downloaded the predicted and non-curated list, must include a step to remove those from the data (XR_ and XM_ genes)
+
+*Loading whole refseq*
+```{r}
+head(whole.refseq)
+whole <- fread("annotation_diff/overlap/diff.whole_gene_refseq_tssdown.bed")
+whole.d <- whole[,c(4,8)]
+colnames(whole.d) <- c("genes","ID")
+dim(whole.d)
+head(whole.d)
+whole.d <- whole.d[-grep("XM_", whole.d$ID),]
+whole.d <- whole.d[-grep("XR_", whole.d$ID),]
+
+#whole frame to add
+whole.agg <- aggregate(ID~genes, data=whole.d, FUN=paste, collapse=" | ")
+whole.agg <- merge(annot, whole.agg, by ='genes', all.x=T)
+whole.agg <- whole.agg[match(annot$genes, whole.agg$genes),]
+identical(whole.agg$genes, annot$genes)
+head(whole.agg)
+
+
+```
+
+*Gene symbol*
+```{r}
+#actual Gene names
+all.refseq <- fread("annotation_diff/bed_files/all_refseq.bed")
+head(all.refseq)
+
+all.match <- all.refseq[match(whole.d$ID, all.refseq$name),]
+identical(all.match$name, whole.d$ID)
+symbol.d <- data.frame(genes= whole.d$genes, Symbol=all.match$name2)
+head(symbol.d)
+
+#whole frame to add
+symbol.agg <- aggregate(Symbol~genes, data=symbol.d, FUN=paste, collapse=" | ")
+symbol.agg <- merge(annot, symbol.agg, by ='genes', all.x=T)
+symbol.agg <- symbol.agg[match(annot$genes, symbol.agg$genes),]
+identical(symbol.agg$genes, annot$genes)
+
+rm(whole, whole.d, all.refseq, all.match, symbol.d)
+```
+
+
+*exons*
+```{r}
+#exons format
+exons <- fread("annotation_diff/overlap/diff.exons_refseq.bed")
+exons.d <- exons[,c(4,8)]
+colnames(exons.d) <- c("genes","exons")
+dim(exons.d)
+exons.d <- exons.d[-grep("XM_", exons.d$exons),]
+exons.d <- exons.d[-grep("XR_", exons.d$exons),]
+head(exons.d)
+
+exons.d$exons <- unlist(lapply(1:nrow(exons.d), function(x){
+  a <- strsplit(as.character(exons.d$exons[x]), "_")[[1]][1:4]
+  paste(a[1], a[2], a[3], a[4], sep="_")
+  }))
+
+
+#exons frame to add
+exons.agg <- aggregate(exons~genes, data=exons.d, FUN=paste, collapse=" | ")
+exons.agg <- merge(annot, exons.agg, by ='genes', all.x=T)
+exons.agg <- exons.agg[match(annot$genes, exons.agg$genes),]
+identical(exons.agg$genes, annot$genes)
+
+#exon 1 dataframe
+exons.agg$exon.one <- NA
+exons.agg$exon.one[grep("exon_1$", exons.agg$exons)] <- "yes"
+head(exons.agg)
+exons.agg[grep("exon_1$", exons.agg$exons),][1:2,]
+
+```
+
+*introns*
+```{r}
+#introns format
+introns <- fread("annotation_diff/overlap/diff.introns_refseq.bed")
+introns.d <- introns[,c(4,8)]
+colnames(introns.d) <- c("genes","introns")
+dim(introns.d)
+head(introns.d)
+introns.d <- introns.d[-grep("XM_", introns.d$introns),]
+introns.d <- introns.d[-grep("XR_", introns.d$introns),]
+
+introns.d$introns <- unlist(lapply(1:nrow(introns.d), function(x){
+  a <- strsplit(as.character(introns.d$introns[x]), "_")[[1]][1:4]
+  paste(a[1], a[2], a[3], a[4], sep="_")
+  }))
+
+#introns frame to add
+introns.agg <- aggregate(introns~genes, data=introns.d, FUN=paste, collapse=" | ")
+introns.agg <- merge(annot, introns.agg, by ='genes', all.x=T)
+introns.agg <- introns.agg[match(annot$genes, introns.agg$genes),]
+identical(introns.agg$genes, annot$genes)
+
+
+```
+
+*Exon/intro boundaries*
+```{r}
+ex.in <- data.frame(genes = exons.agg$genes,
+               exons = exons.agg$exons, 
+               introns = introns.agg$introns)
+ex.in$sum <- rowSums(!is.na(ex.in[,2:3]))
+ex.in[which(ex.in$sum==2),][1:5,]
+
+ex.in$Boundaries <-NA
+ex.in$Boundaries[which(ex.in$sum==2)] <- 1
+ex.in$Boundaries <- factor(ex.in$Boundaries, levels = c(1,NA))
+colSums(!is.na(ex.in))
+str(ex.in)
+
+rm(exons, exons.d, introns, introns.d)
+```
+
+
+```{r}
+#Upstream TSS 200 format
+tss200 <- fread("annotation_diff/overlap/diff.TSS200_refseq.bed")
+tss200.d <- tss200[,c(4,8)]
+colnames(tss200.d) <- c("genes","TSS200")
+dim(tss200.d)
+head(tss200.d)
+tss200.d <- tss200.d[-grep("XM_", tss200.d$TSS200),]
+tss200.d <- tss200.d[-grep("XR_", tss200.d$TSS200),]
+
+tss200.d$TSS200 <- unlist(lapply(1:nrow(tss200.d), function(x){
+  a <- strsplit(as.character(tss200.d$TSS200[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")}))
+
+#tss200 frame to add
+tss200.agg <- aggregate(TSS200~genes, data=tss200.d, FUN=paste, collapse=" | ")
+tss200.agg <- merge(annot, tss200.agg, by ='genes', all.x=T)
+tss200.agg <- tss200.agg[match(annot$genes, tss200.agg$genes),]
+identical(tss200.agg$genes, annot$genes)
+
+rm(tss200, tss200.d)
+```
+
+
+```{r}
+#Upstream TSS 1500 format
+tss1500 <- fread("annotation_diff/overlap/diff.TSS1500_refseq.bed")
+tss1500.d <- tss1500[,c(4,8)]
+colnames(tss1500.d) <- c("genes","TSS1500")
+dim(tss1500.d)
+head(tss1500.d)
+tss1500.d <- tss1500.d[-grep("XM_", tss1500.d$TSS1500),]
+tss1500.d <- tss1500.d[-grep("XR_", tss1500.d$TSS1500),]
+
+tss1500.d$TSS1500 <- unlist(lapply(1:nrow(tss1500.d), function(x){
+  a <- strsplit(as.character(tss1500.d$TSS1500[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")}))
+
+
+#tss1500 frame to add
+tss1500.agg <- aggregate(TSS1500~genes, data=tss1500.d, FUN=paste, collapse=" | ")
+tss1500.agg <- merge(annot, tss1500.agg, by ='genes', all.x=T)
+tss1500.agg <- tss1500.agg[match(annot$genes, tss1500.agg$genes),]
+identical(tss1500.agg$genes, annot$genes)
+
+rm(tss1500, tss1500.d)
+```
+
+
+```{r}
+#5' UTR format
+utr5 <- fread("annotation_diff/overlap/diff.5UTR_refseq.bed")
+utr5.d <- utr5[,c(4,8)]
+colnames(utr5.d) <- c("genes","UTR_5")
+dim(utr5.d)
+head(utr5.d)
+utr5.d <- utr5.d[-grep("XM_", utr5.d$UTR_5),]
+utr5.d <- utr5.d[-grep("XR_", utr5.d$UTR_5),]
+
+utr5.d$UTR_5 <- unlist(lapply(1:nrow(utr5.d), function(x){
+  a <- strsplit(as.character(utr5.d$UTR_5[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")
+  }))
+
+#utr5 frame to add
+utr5.agg <- aggregate(UTR_5~genes, data=utr5.d, FUN=paste, collapse=" | ")
+utr5.agg <- merge(annot, utr5.agg, by ='genes', all.x=T)
+utr5.agg <- utr5.agg[match(annot$genes, utr5.agg$genes),]
+identical(utr5.agg$genes, annot$genes)
+
+rm(utr5, utr5.d)
+```
+
+
+```{r}
+#3'UTR format
+utr3 <- fread("annotation_diff/overlap/diff.3UTR_refseq.bed")
+utr3.d <- utr3[,c(4,8)]
+colnames(utr3.d) <- c("genes","UTR_3")
+dim(utr3.d)
+head(utr3.d)
+utr3.d <- utr3.d[-grep("XM_", utr3.d$UTR_3),]
+utr3.d <- utr3.d[-grep("XR_", utr3.d$UTR_3),]
+
+utr3.d$UTR_3 <- unlist(lapply(1:nrow(utr3.d), function(x){
+  a <- strsplit(as.character(utr3.d$UTR_3[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")
+  }))
+
+#utr3 frame to add
+utr3.agg <- aggregate(UTR_3~genes, data=utr3.d, FUN=paste, collapse=" | ")
+utr3.agg <- merge(annot, utr3.agg, by ='genes', all.x=T)
+utr3.agg <- utr3.agg[match(annot$genes, utr3.agg$genes),]
+identical(utr3.agg$genes, annot$genes)
+
+rm(utr3, utr3.d)
+```
+
+
+```{r}
+#Downstream 200 format
+down200 <- fread("annotation_diff/overlap/diff.down200_refseq.bed")
+down200.d <- down200[,c(4,8)]
+colnames(down200.d) <- c("genes","down200")
+dim(down200.d)
+head(down200.d)
+down200.d <- down200.d[-grep("XM_", down200.d$down200),]
+down200.d <- down200.d[-grep("XR_", down200.d$down200),]
+
+down200.d$down200 <- unlist(lapply(1:nrow(down200.d), function(x){
+  a <- strsplit(as.character(down200.d$down200[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")
+  }))
+
+#down200 frame to add
+down200.agg <- aggregate(down200~genes, data=down200.d, FUN=paste, collapse=" | ")
+down200.agg <- merge(annot, down200.agg, by ='genes', all.x=T)
+down200.agg <- down200.agg[match(annot$genes, down200.agg$genes),]
+identical(down200.agg$genes, annot$genes)
+
+rm(down200, down200.d)
+```
+
+```{r}
+#Downstream 1500 format
+down1500 <- fread("annotation_diff/overlap/diff.down1500_refseq.bed")
+down1500.d <- down1500[,c(4,8)]
+colnames(down1500.d) <- c("genes","down1500")
+dim(down1500.d)
+head(down1500.d)
+down1500.d <- down1500.d[-grep("XM_", down1500.d$down1500),]
+down1500.d <- down1500.d[-grep("XR_", down1500.d$down1500),]
+
+down1500.d$down1500 <- unlist(lapply(1:nrow(down1500.d), function(x){
+  a <- strsplit(as.character(down1500.d$down1500[x]), "_")[[1]][1:2]
+  paste(a[1], a[2], sep="_")
+  }))
+
+#down1500 frame to add
+down1500.agg <- aggregate(down1500~genes, data=down1500.d, FUN=paste, collapse=" | ")
+down1500.agg <- merge(annot, down1500.agg, by ='genes', all.x=T)
+down1500.agg <- down1500.agg[match(annot$genes, down1500.agg$genes),]
+identical(down1500.agg$genes, annot$genes)
+
+rm(down1500, down1500.d)
+```
+
+
+```{r}
+#CpG islands format 
+cgi <- fread("annotation_diff/overlap/diff.CpG_islands.bed")
+CpG_Island.d <- cgi[,c(4,8)]
+colnames(CpG_Island.d) <- c("genes","CpG_Island")
+dim(CpG_Island.d)
+head(CpG_Island.d)
+
+#CpG_Island frame to add
+CpG_Island.agg <- aggregate(CpG_Island~genes, data=CpG_Island.d, FUN=paste, collapse=" | ")
+CpG_Island.agg <- merge(annot, CpG_Island.agg, by ='genes', all.x=T)
+CpG_Island.agg <- CpG_Island.agg[match(annot$genes, CpG_Island.agg$genes),]
+identical(CpG_Island.agg$genes, annot$genes)
+
+rm(cgi, CpG_Island.d)
+```
+
+*Putting it all together!*
+```{r}
+diff.annot <- data.frame(genes = annot$genes,
+                         ID = whole.agg$ID,
+                         Symbol = symbol.agg$Symbol, 
+                         TSS1500 = tss1500.agg$TSS1500,
+                         TSS200 = tss200.agg$TSS200,
+                         Exons = exons.agg$exons, 
+                         Exon.One = exons.agg$exon.one,
+                         Introns = introns.agg$introns, 
+                         Exon.Intron = ex.in$Boundaries, 
+                         UTR_3 = utr3.agg$UTR_3,
+                         UTR_5 = utr5.agg$UTR_5, 
+                         Down200 = down200.agg$down200, 
+                         Down1500 = down1500.agg$down1500, 
+                         CpG_Island = CpG_Island.agg$CpG_Island) 
+diff.annot$Exon.Intron <- NA
+diff.annot$Exon.Intron[which(rowSums(!is.na(diff.annot[,c("Exons","Introns")]))==2)] <- 'yes'
+head(diff.annot)
+diff.annot[!is.na(diff.annot$Exon.Intron),][1:2,]
+
+colSums(!is.na(diff.annot))
+colSums(!is.na(dev.annot))
+
+#adding intergenic regions
+diff.annot$Intergenic <- NA
+diff.annot$Intergenic[which(rowSums(!is.na(diff.annot[,-c(1,14)]))==0)] <- 'yes'
+head(diff.annot)
+
+save(diff.annot, file = "annotation_diff/diff.annot.20200516.Rdata")
+
+rm(annot, whole.agg, symbol.agg, tss1500.agg, tss200.agg, exons.agg, 
+   introns.agg, utr3.agg, utr5.agg, down200.agg, down1500.agg, CpG_Island.agg)
+```
+
+
+
+*Fraction overlap coming soon*
+```{r}
+#overlap fraction
+exons.ol <- exons[,c(4,8,11)]
+summary(exons$V11)
+plot(density(exons$V11))
+
+```
+

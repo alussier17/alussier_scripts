@@ -1,0 +1,104 @@
+---
+title: "Overlap with autism spectrum disorder genes"
+output: html_document
+---
+
+*Loading PAE, PF, shared results*
+```{r}
+#loading results
+PAE.hits <- gdata::read.xls("Supplementary materials/Sex_differences_supplemental_tables_2021-10-21.xlsx",
+                            sheet = 1, skip =1)
+PF.hits <- gdata::read.xls("Supplementary materials/Sex_differences_supplemental_tables_2021-10-21.xlsx",
+                            sheet = 3, skip =1)
+SC.hits <- gdata::read.xls("Supplementary materials/Sex_differences_supplemental_tables_2021-10-21.xlsx",
+                            sheet = 5, skip =1)
+
+```
+
+*Checking ASD overlap*
+```{r}
+#loading ASD data 
+asd.genes <- gdata::read.xls("Scripts/Analysis/ASD_genes_summary_2021-08-12.xlsx", na.strings = "")
+head(asd.genes)
+asd.genes.2 <- asd.genes[-1,-c(13:16)]
+head(asd.genes.2)
+
+
+#checking PAE hits for ASD genes
+PAE.genes <- unique(c(strsplit2(PAE.hits$Gene, " | ")))
+PAE.genes <- toupper(PAE.genes[!PAE.genes %in% c("","|")])
+
+PF.genes <- unique(c(strsplit2(PF.hits$Gene, " | ")))
+PF.genes <- toupper(PF.genes[!PF.genes %in% c("","|")])
+
+SC.genes <- unique(c(strsplit2(SC.hits$Gene, " | ")))
+SC.genes <- toupper(SC.genes[!SC.genes %in% c("","|")])
+
+for(i in 1:ncol(asd.genes.2)){
+  if(i == 1){asd.summary <- data.frame()}
+  print(i)
+  asd.genes.2[,i] <- toupper(asd.genes.2[,i])
+  PAE <- asd.genes.2[asd.genes.2[,i] %in% PAE.genes ,i]
+  PF <- asd.genes.2[asd.genes.2[,i] %in% PF.genes ,i]
+  SC <- asd.genes.2[asd.genes.2[,i] %in% SC.genes ,i]
+  
+  a <- data.frame(dataset = colnames(asd.genes.2)[i],
+                  PAE = ifelse(length(PAE)>0, paste(unlist(PAE), sep = ", "), ""),
+                  PF = ifelse(length(PF)>0, paste(unlist(PF), sep = ", "), ""),
+                  SC = ifelse(length(SC)>0, paste(unlist(SC), sep = ", "),""))
+  asd.summary <- rbind(asd.summary, a)
+  
+  rm(a, PAE, PF, SC)  
+}
+asd.summary
+write.table(asd.summary, file = "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/Temp/ASD_genes/ASD_overlaps.txt", sep ="\t",quote=F, row.names = F)
+PAE.hits[grep("NEGR1", toupper(PAE.hits$Gene)),] #sex-concordant
+PAE.hits[grep("CDH13", toupper(PAE.hits$Gene)),] #male-specific, sex-concordant - 2 DMRs
+PAE.hits[grep("GRIK1", toupper(PAE.hits$Gene)),] #sex-concordant
+
+SC.hits[grep("MMS22L", toupper(SC.hits$Gene)),] #sex-concordant
+SC.hits[grep("NEDD4L", toupper(SC.hits$Gene)),] #sex-concordant
+SC.hits[grep("PRKAR1B", toupper(SC.hits$Gene)),] #sex-concordant
+SC.hits[grep("FRMD4A", toupper(SC.hits$Gene)),] #sex-concordant
+
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Aim 3/featureData.Rdata", verbose=T)
+corley.young <- gdata::read.xls("/Users/alexlussier/Dropbox (Partners HealthCare)/Side projects/dev2.0/Temp/ASD_genes/Corley2019_DataSheet_1.xlsx", sheet=1)
+corley.middle <- gdata::read.xls("/Users/alexlussier/Dropbox (Partners HealthCare)/Side projects/dev2.0/Temp/ASD_genes/Corley2019_DataSheet_1.xlsx", sheet=2)
+corley.old <- gdata::read.xls("/Users/alexlussier/Dropbox (Partners HealthCare)/Side projects/dev2.0/Temp/ASD_genes/Corley2019_DataSheet_1.xlsx", sheet=3)
+corley.young$gene <- featureData$UCSC_REFGENE_NAME[match(corley.young$ID,featureData$TargetID)]
+corley.middle$gene <- featureData$UCSC_REFGENE_NAME[match(corley.middle$ID,featureData$TargetID)]
+corley.old$gene <- featureData$UCSC_REFGENE_NAME[match(corley.old$ID,featureData$TargetID)]
+
+c.young = unique(c(strsplit2(corley.young$gene,";")))
+c.middle = unique(c(strsplit2(corley.middle$gene,";")))
+c.old = unique(c(strsplit2(corley.old$gene,";")))
+
+rm(featureData, corley.young, corley.middle, corley.old)
+
+temp <- data.frame(dataset = "corley_young",
+                   PAE = paste(c.young[c.young %in% PAE.genes], collapse =", "),
+                   PF = paste(c.young[c.young %in% PF.genes], collapse =", "),
+                   SC = paste(c.young[c.young %in% SC.genes], collapse = ", "))
+asd.summary <- rbind(asd.summary, temp)
+rm(temp)
+temp <- data.frame(dataset = "corley_middle",
+                   PAE = paste(c.middle[c.middle %in% PAE.genes], collapse =", "),
+                   PF = paste(c.middle[c.middle %in% PF.genes], collapse =", "),
+                   SC = paste(c.middle[c.middle %in% SC.genes], collapse = ", "))
+asd.summary <- rbind(asd.summary, temp)
+rm(temp)
+temp <- data.frame(dataset = "corley_old",
+                   PAE = paste(c.old[c.old %in% PAE.genes], collapse =", "),
+                   PF = paste(c.old[c.old %in% PF.genes], collapse =", "),
+                   SC = paste(c.old[c.old %in% SC.genes], collapse = ", "))
+asd.summary <- rbind(asd.summary, temp)
+rm(temp)
+
+asd.summary
+
+write.table(asd.summary, file = "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/Temp/ASD_genes/ASD_overlaps_corley.txt", sep ="\t",quote=F, row.names = F)
+
+rm(c.young, c.middle, c.old, asd.genes, asd.genes.2, SC.hits, PAE.hits, PF.hits,
+   PAE.genes, PF.genes, SC.genes, i, asd.summary)
+```

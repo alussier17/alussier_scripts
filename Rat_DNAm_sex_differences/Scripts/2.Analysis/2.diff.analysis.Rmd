@@ -1,0 +1,1365 @@
+---
+title: "Analysis of sex-differences resulting from prenatal alcohol and food-related stress"
+output: html_document
+---
+
+*Loading libraries*
+```{r}
+library(broom)
+library(data.table)
+library(DiffBind)
+library(dplyr)
+library(edgeR)
+library(ggplot2)
+library(gplots)
+library(grid)
+library(gridExtra)
+library(limma)
+library(RColorBrewer)
+library(reshape)
+library(sva)
+library(VennDiagram)
+
+setwd("location_of_data")
+load("location_of_data/diff.dge.Rdata") #edgeR object from preprocessing script.
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+```
+
+*Loading results and venn diagrams*
+```{r}
+getwd()
+load("../diff/results/diff.GpS.results.Rdata", verbose = T) #sex-concordant
+load("../diff/results/diff.Fem.results.Rdata", verbose = T) #female-specific
+load("../diff/results/diff.Male.results.Rdata", verbose = T) #male-specific
+
+#Overlaps of analyses
+#PAE-specific
+venn(list(GpS = diff.hits.GpS[,1], 
+          Female = diff.hits.Fem[,1],
+          Male = diff.hits.Male[,1]))
+
+#PF-specific hits 
+venn(list(GpS = diff.hits.GpS.PF[,1], 
+          Female = diff.hits.Fem.PF[,1],
+          Male = diff.hits.Male.PF[,1]))
+
+#shared hits of PAE and PF
+venn(list(GpS = diff.hits.GpS.shared[,1], 
+          Female = diff.hits.Fem.shared[,1],
+          Male = diff.hits.Male.shared[,1]))
+
+dim(diff.hits.GpS)
+#getting proper sex-concordant hits without the overlap of male/female
+sc.hits.GpS <- diff.hits.GpS[-which(diff.hits.GpS$genes%in% c(diff.hits.Fem$genes, 
+                                                              diff.hits.Male$genes)),]
+dim(sc.hits.GpS)
+sc.hits.GpS.PF <- diff.hits.GpS.PF[-which(diff.hits.GpS.PF$genes%in% c(diff.hits.Fem.PF$genes, 
+                                                              diff.hits.Male.PF$genes)),]
+
+sc.hits.GpS.shared <- diff.hits.GpS.shared[-which(diff.hits.GpS.shared$genes%in%
+                                                    c(diff.hits.Fem.shared$genes, 
+                                                              diff.hits.Male.shared$genes)),]
+
+#Saving results 
+write.csv(sc.hits.GpS, file="../diff/sc.hits.GpS.csv", quote=F)
+write.csv(diff.hits.Fem, file = "../diff/fem.hits.csv", quote=F)
+write.csv(diff.hits.Male, file = "../diff/male.hits.csv", quote=F)
+
+write.csv(sc.hits.GpS.PF, file="../diff/sc.hits.GpS.PF.csv", quote=F)
+write.csv(diff.hits.Fem.PF, file = "../diff/fem.hits.PF.csv", quote=F)
+write.csv(diff.hits.Male.PF, file = "../diff/male.hits.PF.csv", quote=F)
+
+write.csv(sc.hits.GpS.shared, file="../diff/sc.hits.GpS.shared.csv", quote=F)
+write.csv(diff.hits.Fem.shared, file = "../diff/fem.hits.shared.csv", quote=F)
+write.csv(diff.hits.Male.shared, file = "../diff/male.hits.shared.csv", quote=F)
+```
+
+*Plotting top hits from GpS*
+```{r}
+GpS.data <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.GpS$genes),
+                                  c(1:5, 11:15, 6:10, 16:20, 26:30, 21:25)]
+dim(GpS.data)
+GpS.data <- GpS.data[-which(rownames(GpS.data) %in% diff.hits.Fem$genes),]
+GpS.data <- GpS.data[-which(rownames(GpS.data) %in% diff.hits.Male$genes),]
+
+gps.summary <- do.call(rbind, lapply(1:nrow(GpS.data), function(x){
+  a <- GpS.data[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[16:20]), PF_M = mean(a[21:25]), PAE_M = mean(a[26:30]),
+                  C = mean(a[c(1:5, 16:20)]), PF = mean(a[c(6:10, 21:25)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(gps.summary) <- rownames(GpS.data)
+length(which(gps.summary$PAE < gps.summary$C)) #242 with lower DNAm
+length(which(gps.summary$PAE > gps.summary$C)) #46 with higher DNAm 
+
+
+diff.hits.GpS$length <- as.numeric(strsplit2(strsplit2(diff.hits.GpS$genes, ":")[,2],"-")[,2]) - 
+  as.numeric(strsplit2(strsplit2(diff.hits.GpS$genes, ":")[,2],"-")[,1])
+summary(diff.hits.GpS$length)
+
+#ordered by difference between PAE and Control
+GpS.data.2 <- GpS.data[order(gps.summary$PAE - gps.summary$C),]
+
+heatmap.2(GpS.data.2, trace='none', Colv = F, Rowv = F, scale='row',
+          col= rev(col),  dendrogram = "none", labRow = F, 
+          ColSideColors = rep(c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5)),2)
+          #ColSideColors = c(rep("pink",15), rep("lightblue",15))
+          )
+          
+heatmap.2(GpS.data.2, trace = 'none', Colv = T, Rowv = F, scale='row',
+          col= rev(col), dendrogram = "column", labRow = F,
+          ColSideColors = rep(c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5)),2)
+          )
+
+heatmap.2(GpS.data.2, trace = 'none', Colv = T, Rowv = F, scale='row',
+          col= rev(col), dendrogram = "column", labRow = F,
+          ColSideColors = c(rep("pink",15), rep("lightblue",15))
+          )
+
+#making data frame for plotting of specific variables
+gps.data.premelt <- t(GpS.data)
+gps.data.premelt <- data.frame(Sample = rownames(gps.data.premelt),
+                               Sex = diff.meta$sex,
+                               Group = rep(c(rep('Con',5), rep("PF",5), rep("PAE",5)),2),
+                               gps.data.premelt)
+
+gps.data.melt <- melt(gps.data.premelt)
+head(gps.data.melt)
+gps.data.melt$variable <- paste(paste(strsplit2(gps.data.melt$variable, "\\.")[,1],
+                                      strsplit2(gps.data.melt$variable, "\\.")[,2], 
+                                      sep =":"),
+                                strsplit2(gps.data.melt$variable, "\\.")[,3], sep ="-")
+gps.data.melt$Group <- factor(gps.data.melt$Group, levels = c("Con","PF","PAE"))
+
+```
+
+*Plotting top hits from Females only*
+```{r}
+female.data <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Fem$genes),
+                                     c(1:5, 11:15, 6:10)]
+dim(female.data)
+
+female.summary <- do.call(rbind, lapply(1:nrow(female.data), function(x){
+  a <- female.data[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]))
+  b
+}))
+rownames(female.summary) <- rownames(female.data)
+length(which(female.summary$PAE_F < female.summary$C_F)) #18 with lower DNAm
+length(which(female.summary$PAE_F > female.summary$C_F)) #0 with higher DNAm 
+
+female.data.2 <- female.data[order(female.summary$PAE_F - female.summary$C_F),]
+
+heatmap.2(female.data.2, trace='none', Colv = F, Rowv=T, scale='row',
+          col= rev(col), dendrogram = "none", labRow = F,
+          ColSideColors= c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5))
+)
+
+heatmap.2(female.data.2, trace='none', Colv = T, Rowv=F, scale='row',
+          col= rev(col), dendrogram="column", labRow = F,
+          ColSideColors= c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5))
+          )
+
+#average size of DMRs
+diff.hits.Fem$length <- as.numeric(strsplit2(strsplit2(diff.hits.Fem$genes, ":")[,2],"-")[,2])-
+  as.numeric(strsplit2(strsplit2(diff.hits.Fem$genes, ":")[,2],"-")[,1])
+summary(diff.hits.Fem$length)
+```
+
+*Plotting top hits from Males only*
+```{r}
+male.data <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Male$genes),
+                                    c(16:20, 26:30, 21:25)]
+dim(male.data)
+
+
+male.summary <- do.call(rbind, lapply(1:nrow(male.data), function(x){
+  a <- male.data[x,]
+  b <- data.frame(C_M = mean(a[1:5]), PF_M = mean(a[6:10]), PAE_M = mean(a[11:15]))
+  b
+}))
+rownames(male.summary) <- rownames(male.data)
+length(which(male.summary$PAE_M < male.summary$C_M)) #48 with lower DNAm
+length(which(male.summary$PAE_M > male.summary$C_M)) #11 with higher DNAm 
+
+male.data.2 <- male.data[order(male.summary$PAE_M - male.summary$C_M),]
+
+heatmap.2(male.data.2, trace='none', Colv = F, Rowv=F, scale='row',
+          col=rev(col), dendrogram = "none", labRow = F,
+          ColSideColors= c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5))
+)
+
+heatmap.2(male.data.2, trace='none', Colv = T, Rowv=F, scale='row',
+          col=rev(col), dendrogram="column",labRow = F,
+          ColSideColors= c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5))
+)
+
+#average size of DMRs
+
+diff.hits.Male$length <- as.numeric(strsplit2(strsplit2(diff.hits.Male$genes, ":")[,2],"-")[,2])-
+  as.numeric(strsplit2(strsplit2(diff.hits.Male$genes, ":")[,2],"-")[,1])
+summary(diff.hits.Male$length)
+
+
+```
+
+*GpS, female, male together*
+```{r}
+full.data <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           c(diff.hits.GpS$genes,
+                                            diff.hits.Fem$genes, 
+                                            diff.hits.Male$genes)),
+                                  c(1:5, 11:15, 6:10, 16:20, 26:30, 21:25)]
+full.summary <- do.call(rbind, lapply(1:nrow(full.data), function(x){
+  a <- full.data[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[16:20]), PF_M = mean(a[21:25]), PAE_M = mean(a[26:30]),
+                  C = mean(a[c(1:5, 16:20)]), PF = mean(a[c(6:10, 21:25)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(full.summary) <- rownames(full.data)
+length(which(full.summary$PAE < full.summary$C)) #308 with lower DNAm
+length(which(full.summary$PAE > full.summary$C)) #57 with higher DNAm 
+
+full.data.2 <- full.data[match(c(rownames(GpS.data.2),
+                                 rownames(female.data.2),
+                                 rownames(male.data.2)), rownames(full.data)),]
+
+heatmap.2(full.data.2, trace = 'none', Colv = F, Rowv = F, scale='row',
+          col= rev(col), dendrogram = "none", labRow = F,
+          #ColSideColors = rep(c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5)),2),
+          ColSideColors = c(rep("pink",15), rep("lightblue",15)),
+          RowSideColors = c(rep("purple", 288), rep("pink",18), rep("lightblue",59))
+          )
+
+#making data frame for plotting
+full.data.premelt <- t(full.data)
+full.data.premelt <- data.frame(Sample = rownames(full.data.premelt),
+                               Sex = diff.meta$sex,
+                               Group = rep(c(rep('Con',5), rep("PF",5), rep("PAE",5)),2),
+                               full.data.premelt)
+
+full.data.melt <- melt(full.data.premelt)
+head(full.data.melt)
+full.data.melt$variable <- paste(paste(strsplit2(full.data.melt$variable, "\\.")[,1],
+                                      strsplit2(full.data.melt$variable, "\\.")[,2], 
+                                      sep =":"),
+                                strsplit2(full.data.melt$variable, "\\.")[,3], sep ="-")
+
+full.data.melt$Hit <- "Sex-concordant"
+full.data.melt$Hit[which(full.data.melt$variable %in% 
+                           diff.hits.Fem$genes)] <-"Female-specific"
+full.data.melt$Hit[which(full.data.melt$variable %in% 
+                           diff.hits.Male$genes)] <-"Male-specific"
+full.data.melt$Hit <- factor(full.data.melt$Hit, levels = c("Sex-concordant",
+                                                            "Female-specific",
+                                                            "Male-specific"))
+full.data.melt$Group <- factor(full.data.melt$Group, levels = c("Con","PF","PAE"))
+
+head(full.data.melt)
+GpS.Fem.overlap <- diff.hits.Fem$genes[diff.hits.Fem$genes %in% diff.hits.GpS$genes]
+
+ggplot(full.data.melt[which(full.data.melt$variable %in% GpS.Fem.overlap),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+GpS.Male.overlap <- diff.hits.Male$genes[diff.hits.Male$genes %in% diff.hits.GpS$genes]
+
+ggplot(full.data.melt[which(full.data.melt$variable %in% GpS.Male.overlap),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+
+```
+
+*GpS, female, male together - Pair-fed hits*
+```{r}
+GpS.data.PF <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.GpS.PF$genes),
+                                  c(11:15, 1:5, 6:10, 26:30, 16:20, 21:25)]
+dim(GpS.data.PF)
+GpS.data.PF <- GpS.data.PF[-which(rownames(GpS.data.PF) %in% diff.hits.Fem.PF$genes),]
+GpS.data.PF <- GpS.data.PF[-which(rownames(GpS.data.PF) %in% diff.hits.Male.PF$genes),]
+
+gps.summary.PF <- do.call(rbind, lapply(1:nrow(GpS.data.PF), function(x){
+  a <- GpS.data.PF[x,]
+  b <- data.frame(C_F = mean(a[6:10]), PF_F = mean(a[1:5]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[21:25]),PF_M = mean(a[16:20]),  PAE_M = mean(a[26:30]),
+                  C = mean(a[c(6:10, 21:25)]), PF = mean(a[c(1:5, 16:20)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(gps.summary.PF) <- rownames(GpS.data.PF)
+length(which(gps.summary.PF$PF < gps.summary.PF$C)) #100 with lower DNAm
+length(which(gps.summary.PF$PF > gps.summary.PF$C)) #29 with higher DNAm 
+
+diff.hits.GpS.PF$length <- as.numeric(strsplit2(strsplit2(diff.hits.GpS.PF$genes, ":")[,2],"-")[,2]) - 
+  as.numeric(strsplit2(strsplit2(diff.hits.GpS.PF$genes, ":")[,2],"-")[,1])
+summary(diff.hits.GpS.PF$length)
+
+GpS.data.2.PF <- GpS.data.PF[order(gps.summary.PF$PF - gps.summary.PF$C),]
+
+#female
+female.data.PF <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Fem.PF$genes),
+                                     c(1:5,11:15,  6:10)]
+head(female.data.PF)
+
+female.summary.PF <- do.call(rbind, lapply(1:nrow(female.data.PF), function(x){
+  a <- female.data.PF[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]))
+  b
+}))
+rownames(female.summary.PF) <- rownames(female.data.PF)
+length(which(female.summary.PF$PF_F < female.summary.PF$C_F)) #8 with lower DNAm
+length(which(female.summary.PF$PF_F > female.summary.PF$C_F)) #0 with higher DNAm 
+
+female.data.2.PF <- female.data.PF[order(female.summary.PF$PF_F - female.summary.PF$C_F),]
+
+#male
+male.data.PF <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Male.PF$genes),
+                                    c(16:20, 26:30, 21:25)]
+head(male.data.PF)
+
+male.summary.PF <- do.call(rbind, lapply(1:nrow(male.data.PF), function(x){
+  a <- male.data.PF[x,]
+  b <- data.frame(C_M = mean(a[1:5]), PF_M = mean(a[6:10]), PAE_M = mean(a[11:15]))
+  b
+}))
+rownames(male.summary.PF) <- rownames(male.data.PF)
+length(which(male.summary.PF$PF_M < male.summary.PF$C_M)) #11 with lower DNAm
+length(which(male.summary.PF$PF_M > male.summary.PF$C_M)) #0 with higher DNAm 
+
+male.data.2.PF <- male.data.PF[order(male.summary.PF$PF_M - male.summary.PF$C_M),]
+
+#plotting
+full.data.PF <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           c(diff.hits.GpS.PF$genes,
+                                            diff.hits.Fem.PF$genes, 
+                                            diff.hits.Male.PF$genes)),
+                                      c(1:5, 11:15, 6:10, 16:20, 26:30, 21:25)]
+head(full.data.PF)
+full.summary.PF <- do.call(rbind, lapply(1:nrow(full.data.PF), function(x){
+  a <- full.data.PF[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[16:20]), PF_M = mean(a[21:25]), PAE_M = mean(a[26:30]),
+                  C = mean(a[c(1:5, 16:20)]), PF = mean(a[c(6:10, 21:25)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(full.summary.PF) <- rownames(full.data.PF)
+length(which(full.summary.PF$PF < full.summary.PF$C)) #119 with lower DNAm
+length(which(full.summary.PF$PF > full.summary.PF$C)) #29 with higher DNAm 
+
+full.data.2.PF <- full.data.PF[match(c(rownames(GpS.data.2.PF),
+                                 rownames(female.data.2.PF),
+                                 rownames(male.data.2.PF)), rownames(full.data.PF)),]
+head(full.data.2.PF)
+heatmap.2(full.data.2.PF, trace = 'none', Colv = F, Rowv = F, scale='row',
+          col= rev(col), dendrogram = "none", labRow = F,
+          ColSideColors = rep(c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5)),2),
+          #ColSideColors = c(rep("pink",15), rep("lightblue",15)),
+          RowSideColors = c(rep("purple", 129), rep("pink",8), rep("lightblue",11))
+          )
+
+#making data frame for plotting
+full.data.premelt.PF <- t(full.data.PF)
+full.data.premelt.PF <- data.frame(Sample = rownames(full.data.premelt.PF),
+                               Sex = diff.meta$sex,
+                               Group = rep(c( rep("PF",5), rep('Con',5), rep("PAE",5)),2),
+                               full.data.premelt.PF)
+
+full.data.melt.PF <- melt(full.data.premelt.PF)
+head(full.data.melt.PF)
+full.data.melt.PF$variable <- paste(paste(strsplit2(full.data.melt.PF$variable, "\\.")[,1],
+                                      strsplit2(full.data.melt.PF$variable, "\\.")[,2], 
+                                      sep =":"),
+                                strsplit2(full.data.melt.PF$variable, "\\.")[,3], sep ="-")
+
+full.data.melt.PF$Hit <- "Sex-concordant"
+full.data.melt.PF$Hit[which(full.data.melt.PF$variable %in% 
+                           diff.hits.Fem.PF$genes)] <-"Female-specific"
+full.data.melt.PF$Hit[which(full.data.melt.PF$variable %in% 
+                           diff.hits.Male.PF$genes)] <-"Male-specific"
+full.data.melt.PF$Hit <- factor(full.data.melt.PF$Hit, levels = c("Sex-concordant",
+                                                            "Female-specific",
+                                                            "Male-specific"))
+full.data.melt.PF$Group <- factor(full.data.melt.PF$Group, levels = c("PF","Con","PAE"))
+
+head(full.data.melt.PF)
+GpS.Fem.overlap.PF <- diff.hits.Fem.PF$genes[diff.hits.Fem.PF$genes %in% diff.hits.GpS.PF$genes]
+
+ggplot(full.data.melt.PF[which(full.data.melt.PF$variable %in% GpS.Fem.overlap.PF),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+GpS.Male.overlap.PF <- diff.hits.Male.PF$genes[diff.hits.Male.PF$genes %in% diff.hits.GpS.PF$genes]
+
+ggplot(full.data.melt.PF[which(full.data.melt.PF$variable %in% GpS.Male.overlap.PF),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+
+```
+
+*GpS, female, male together - PF and PAE shared hits*
+```{r}
+GpS.data.shared <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.GpS.shared$genes),
+                                  c(11:15, 1:5, 6:10, 26:30, 16:20, 21:25)]
+dim(GpS.data.shared)
+GpS.data.shared <- GpS.data.shared[-which(rownames(GpS.data.shared) %in% diff.hits.Fem.shared$genes),]
+GpS.data.shared <- GpS.data.shared[-which(rownames(GpS.data.shared) %in% diff.hits.Male.shared$genes),]
+
+gps.summary.shared <- do.call(rbind, lapply(1:nrow(GpS.data.shared), function(x){
+  a <- GpS.data.shared[x,]
+  b <- data.frame(C_F = mean(a[6:10]), PF_F = mean(a[1:5]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[21:25]),PF_M = mean(a[16:20]),  PAE_M = mean(a[26:30]),
+                  C = mean(a[c(6:10, 21:25)]), PF = mean(a[c(1:5, 16:20)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(gps.summary.shared) <- rownames(GpS.data.shared)
+length(which(gps.summary.shared$PF < gps.summary.shared$C)) #100 with lower DNAm
+length(which(gps.summary.shared$PF > gps.summary.shared$C)) #29 with higher DNAm 
+
+diff.hits.GpS.shared$length <- as.numeric(strsplit2(strsplit2(diff.hits.GpS.shared$genes, ":")[,2],"-")[,2]) - 
+  as.numeric(strsplit2(strsplit2(diff.hits.GpS.shared$genes, ":")[,2],"-")[,1])
+summary(diff.hits.GpS.shared$length)
+
+GpS.data.2.shared <- GpS.data.shared[order(gps.summary.shared$PF - gps.summary.shared$C),]
+
+#female
+female.data.shared <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Fem.shared$genes),
+                                     c(1:5,11:15,  6:10)]
+head(female.data.shared)
+
+female.summary.shared <- do.call(rbind, lapply(1:nrow(female.data.shared), function(x){
+  a <- female.data.shared[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]))
+  b
+}))
+rownames(female.summary.shared) <- rownames(female.data.shared)
+length(which(female.summary.shared$PF_F < female.summary.shared$C_F)) #8 with lower DNAm
+length(which(female.summary.shared$PF_F > female.summary.shared$C_F)) #0 with higher DNAm 
+
+female.data.2.shared <- female.data.shared[order(female.summary.shared$PF_F - female.summary.shared$C_F),]
+
+#male
+male.data.shared <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           diff.hits.Male.shared$genes),
+                                    c(16:20, 26:30, 21:25)]
+head(male.data.shared)
+
+male.summary.shared <- do.call(rbind, lapply(1:nrow(male.data.shared), function(x){
+  a <- male.data.shared[x,]
+  b <- data.frame(C_M = mean(a[1:5]), PF_M = mean(a[6:10]), PAE_M = mean(a[11:15]))
+  b
+}))
+rownames(male.summary.shared) <- rownames(male.data.shared)
+length(which(male.summary.shared$PF_M < male.summary.shared$C_M)) #11 with lower DNAm
+length(which(male.summary.shared$PF_M > male.summary.shared$C_M)) #0 with higher DNAm 
+
+male.data.2.shared <- male.data.shared[order(male.summary.shared$PF_M - male.summary.shared$C_M),]
+
+#plotting
+full.data.shared <- diff.rpkm.filt.combat[which(rownames(diff.rpkm.filt.combat)%in% 
+                                           c(diff.hits.GpS.shared$genes,
+                                            diff.hits.Fem.shared$genes, 
+                                            diff.hits.Male.shared$genes)),
+                                      c(1:5, 11:15, 6:10, 16:20, 26:30, 21:25)]
+head(full.data.shared)
+full.summary.shared <- do.call(rbind, lapply(1:nrow(full.data.shared), function(x){
+  a <- full.data.shared[x,]
+  b <- data.frame(C_F = mean(a[1:5]), PF_F = mean(a[6:10]), PAE_F = mean(a[11:15]),
+                  C_M = mean(a[16:20]), PF_M = mean(a[21:25]), PAE_M = mean(a[26:30]),
+                  C = mean(a[c(1:5, 16:20)]), PF = mean(a[c(6:10, 21:25)]), 
+                  PAE = mean(a[c(11:15, 26:30)]))
+  b
+}))
+rownames(full.summary.shared) <- rownames(full.data.shared)
+length(which(full.summary.shared$PAE < full.summary.shared$C)) #119 with lower DNAm
+length(which(full.summary.shared$PAE > full.summary.shared$C)) #29 with higher DNAm 
+
+full.data.2.shared <- full.data.shared[match(c(rownames(GpS.data.2.shared),
+                                 rownames(female.data.2.shared),
+                                 rownames(male.data.2.shared)), rownames(full.data.shared)),]
+dim(full.data.2.shared)
+heatmap.2(full.data.2.shared, trace = 'none', Colv = F, Rowv = F, scale='row',
+          col= rev(col), dendrogram = "none", labRow = F,
+          ColSideColors = rep(c(rep("#232F66",5), rep("#347E35", 5), rep("#A50A16",5)),2),
+          #ColSideColors = c(rep("pink",15), rep("lightblue",15)),
+          RowSideColors = c(rep("purple", 733), rep("pink",197), rep("lightblue",19))
+          )
+
+
+#making data frame for plotting
+full.data.premelt.shared <- t(full.data.shared)
+full.data.premelt.shared <- data.frame(Sample = rownames(full.data.premelt.shared),
+                               Sex = diff.meta$sex,
+                               Group = rep(c( rep("PF",5), rep('Con',5), rep("PAE",5)),2),
+                               full.data.premelt.shared)
+
+full.data.melt.shared <- melt(full.data.premelt.shared)
+head(full.data.melt.shared)
+full.data.melt.shared$variable <- paste(paste(strsplit2(full.data.melt.shared$variable, "\\.")[,1],
+                                      strsplit2(full.data.melt.shared$variable, "\\.")[,2], 
+                                      sep =":"),
+                                strsplit2(full.data.melt.shared$variable, "\\.")[,3], sep ="-")
+
+full.data.melt.shared$Hit <- "Sex-concordant"
+full.data.melt.shared$Hit[which(full.data.melt.shared$variable %in% 
+                           diff.hits.Fem.shared$genes)] <-"Female-specific"
+full.data.melt.shared$Hit[which(full.data.melt.shared$variable %in% 
+                           diff.hits.Male.shared$genes)] <-"Male-specific"
+full.data.melt.shared$Hit <- factor(full.data.melt.shared$Hit, levels = c("Sex-concordant",
+                                                            "Female-specific",
+                                                            "Male-specific"))
+full.data.melt.shared$Group <- factor(full.data.melt.shared$Group, levels = c("PF","Con","PAE"))
+
+head(full.data.melt.shared)
+GpS.Fem.overlap.shared <- diff.hits.Fem.shared$genes[diff.hits.Fem.shared$genes %in% diff.hits.GpS.shared$genes]
+
+ggplot(full.data.melt.shared[which(full.data.melt.shared$variable %in% GpS.Fem.overlap.shared),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+GpS.Male.overlap.shared <- diff.hits.Male.shared$genes[diff.hits.Male.shared$genes %in% diff.hits.GpS.shared$genes]
+
+ggplot(full.data.melt.shared[which(full.data.melt.shared$variable %in% GpS.Male.overlap.shared),],
+       aes(x= Group, y = value, fill = Group))+
+  geom_boxplot(aes(alpha=Sex))+
+  facet_wrap(~variable, scales='free')+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  theme_bw()
+
+
+```
+
+*Directionality of hits chi-sq test - manual input*
+```{r}
+set.seed(17)
+chisq.test(data.frame(observed = c(46, 242), expected =  c(144, 144)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(18, 0), expected =  c(9,9)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(48, 11), expected =  c(30,29)), simulate.p.value = T)
+
+chisq.test(data.frame(observed = c(100, 29), expected =  c(65,64)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(8, 0), expected =  c(4,4)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(11, 0), expected =  c(5,6)), simulate.p.value = T)
+
+chisq.test(data.frame(observed = c(479, 19), expected =  c(249,249)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(114, 83), expected =  c(155,156)), simulate.p.value = T)
+chisq.test(data.frame(observed = c(10, 9), expected =  c(9.5,9.5)), simulate.p.value = T)
+
+
+```
+
+*Annotating top hits*
+```{r}
+load("annotation_diff/diff.annot.20200516.Rdata")
+
+full.annot <- diff.annot[which(diff.annot$genes %in% rownames(full.data.2.shared)),]
+head(full.annot)
+
+gps.annot <- diff.annot[which(diff.annot$genes %in% rownames(GpS.data.2.shared)),]
+dim(gps.annot)
+colSums(!is.na(gps.annot))
+dim(diff.annot)
+write.csv(gps.annot, "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/diff/gps.annot.shared.csv",
+             row.names=F, quote=F)
+annot.stats
+female.annot <- diff.annot[which(diff.annot$genes %in% rownames(female.data.2.shared)),]
+dim(female.annot)
+colSums(!is.na(female.annot))
+write.csv(female.annot, "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/diff/female.annot.shared.csv",
+             row.names=F, quote=F)
+
+male.annot <- diff.annot[which(diff.annot$genes %in% rownames(male.data.2.shared)),]
+dim(male.annot)
+colSums(!is.na(male.annot))
+write.csv(male.annot, "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/diff/male.annot.shared.csv",
+             row.names=F, quote=F)
+
+
+annot.summary <- data.frame(Full_dataset = colSums(!is.na(diff.annot))[-c(1:3)]/
+                              colSums(!is.na(diff.annot))[1],
+                            Sex_concordant = colSums(!is.na(gps.annot))[-c(1:3)]/
+                              colSums(!is.na(gps.annot))[1], 
+                            Female_specific = colSums(!is.na(female.annot))[-c(1:3)]/
+                              colSums(!is.na(female.annot))[1],
+                            Male_specific = colSums(!is.na(male.annot))[-c(1:3)]/
+                              colSums(!is.na(male.annot))[1])
+annot.summary$Feature <- rownames(annot.summary)
+annot.summary.melt <- melt(annot.summary)
+head(annot.summary.melt)
+annot.summary.melt$Feature <- factor(annot.summary.melt$Feature, 
+                                     levels = c("Intergenic","CpG_Island",
+                                                "TSS1500", "TSS200","UTR_5",
+                                                "Exon.One","Exons","Exon.Intron","Introns",
+                                                "UTR_3","Down200","Down1500"))
+colnames(annot.summary.melt)[2] <- "Hits"
+
+ggplot(annot.summary.melt, aes(x= Feature, y = value*100, 
+                               group = Hits, fill=Hits))+
+  geom_bar(stat='identity', position=position_dodge(), col ='black')+
+  theme_bw()+
+  ylab("Percent of DMRs in genomic feature")+
+  xlab("Genomic features")+
+  scale_fill_manual(values = c("grey","mediumpurple2","pink","lightblue"))
+  
+
+
+#permutations for significance of genomic regions 
+for(i in 1:10000){
+  if(i %% 500 ==0){print(i)}
+  if(i ==1){
+    perm.concordant = data.frame(); 
+    perm.female = data.frame(); 
+    perm.male=data.frame()}
+  set.seed(i)
+  
+  #sex-concordant
+  perm.c.sample <- diff.annot[sample(1:nrow(diff.annot), nrow(gps.annot)),]
+  perm.concordant <- rbind(perm.concordant,
+                           colSums(!is.na(perm.c.sample))[-c(1:3)]/
+                             colSums(!is.na(perm.c.sample))[1])
+  if(i == 1){colnames(perm.concordant) <- annot.summary$Feature}
+  rownames(perm.concordant)[i] <- paste("perm", i, sep="_")
+
+  #female-specific
+  perm.f.sample <- diff.annot[sample(1:nrow(diff.annot), nrow(female.annot)),]
+  perm.female <- rbind(perm.female,
+                           colSums(!is.na(perm.f.sample))[-c(1:3)]/
+                             colSums(!is.na(perm.f.sample))[1])
+  if(i == 1){colnames(perm.female) <- annot.summary$Feature}
+  rownames(perm.female)[i] <- paste("perm", i, sep="_")
+  
+  #male-specific
+  perm.m.sample <- diff.annot[sample(1:nrow(diff.annot), nrow(male.annot)),]
+  perm.male <- rbind(perm.male,
+                           colSums(!is.na(perm.m.sample))[-c(1:3)]/
+                             colSums(!is.na(perm.m.sample))[1])
+  if(i == 1){colnames(perm.male) <- annot.summary$Feature}
+  rownames(perm.male)[i] <- paste("perm", i, sep="_")
+  
+  #cleaning up
+  rm(perm.c.sample, perm.f.sample, perm.m.sample, i)
+  }
+
+#summary of permutations
+perm.summary <- data.frame(Sex_concordant = colMeans(perm.concordant), 
+                          Female_specific = colMeans(perm.female),
+                          Male_specific = colMeans(perm.male))
+perm.summary$Feature <- colnames(perm.concordant)
+
+#Statistics from permutations (one-way p-value)
+for(i in annot.summary$Feature){
+  print(i)
+  if(i == "TSS1500"){annot.stats <- data.frame(Feature = annot.summary$Feature,
+                                               Sex_concordant = NA,
+                                               Female_specific = NA,
+                                               Male_specific = NA)}
+  #sex-concordant
+  sc <- annot.summary$Sex_concordant[which(annot.summary$Feature == i)]
+  sc.perm <- perm.concordant[,i]
+  ifelse(sc <perm.summary$Sex_concordant[which(perm.summary$Feature == i)], 
+          annot.stats$Sex_concordant[which(annot.stats$Feature ==i)] <- sum(sc.perm<=sc)/length(sc.perm),
+          annot.stats$Sex_concordant[which(annot.stats$Feature ==i)] <- sum(sc.perm>=sc)/length(sc.perm)
+          )
+  
+  #female-specific
+  fem <- annot.summary$Female_specific[which(annot.summary$Feature == i)]
+  fem.perm <- perm.female[,i]
+  ifelse(fem < perm.summary$Female_specific[which(perm.summary$Feature == i)], 
+          annot.stats$Female_specific[which(annot.stats$Feature ==i)] <- sum(fem.perm<=fem)/length(fem.perm),
+          annot.stats$Female_specific[which(annot.stats$Feature ==i)] <- sum(fem.perm>=fem)/length(fem.perm)
+          )
+  
+  #male-specific
+  male <- annot.summary$Male_specific[which(annot.summary$Feature == i)]
+  male.perm <- perm.male[,i]
+  ifelse(male < perm.summary$Male_specific[which(perm.summary$Feature == i)], 
+          annot.stats$Male_specific[which(annot.stats$Feature ==i)] <- sum(male.perm<=male)/length(male.perm),
+          annot.stats$Male_specific[which(annot.stats$Feature ==i)] <- sum(male.perm>=male)/length(male.perm)
+          )
+  
+  rm(sc, fem, male,
+     sc.perm, fem.perm, male.perm, i)
+}
+
+annot.stats
+
+
+#Making nice figure with permutations and statistics
+perm.summary
+perm.summary.melt <- melt(perm.summary)
+head(perm.summary.melt)
+perm.summary.melt$Feature <- factor(perm.summary.melt$Feature, 
+                                     levels = c("Intergenic","CpG_Island",
+                                                "TSS1500", "TSS200","UTR_5",
+                                                "Exon.One","Exons","Exon.Intron","Introns",
+                                                "UTR_3","Down200","Down1500"))
+colnames(perm.summary.melt)[2] <- "Hits"
+perm.summary.melt$Type <- "Permutation"
+perm.summary.melt$SD <- c(colSds(as.matrix(perm.concordant)),
+                           colSds(as.matrix(perm.female)),
+                           colSds(as.matrix(perm.male)))
+perm.summary.melt$Significance <- NA
+
+annot.summary.melt.2 <- annot.summary.melt[-which(annot.summary.melt$Hits == "Full_dataset"),]
+annot.summary.melt.2$Type <- "Results"
+annot.summary.melt.2$SD <- 0
+annot.summary.melt.2$Significance <- c(annot.stats$Sex_concordant, 
+                                      annot.stats$Female_specific,
+                                      annot.stats$Male_specific)
+
+annot.summary.all <- rbind(annot.summary.melt.2, perm.summary.melt)
+annot.summary.all$value <-annot.summary.all$value*100
+annot.summary.all$SD <-annot.summary.all$SD*100
+annot.summary.all$up <- annot.summary.all$value + annot.summary.all$SD
+annot.summary.all$down <- annot.summary.all$value - annot.summary.all$SD
+annot.summary.all$down[which(annot.summary.all$down <0)] <- 0
+
+ggplot(annot.summary.all, aes(x= Feature, y= value, group = Type, fill = Hits))+
+  geom_bar(stat="identity", position = position_dodge(), col = 'black', aes(alpha = Type), width = 0.8)+
+  geom_text(data= annot.summary.all[which(annot.summary.all$Significance <= 0.2 &
+                                           annot.summary.all$Significance > 0.05 ),],
+             aes(x= Feature, y = value+5, group = Type, 
+                 label = round(Significance,2)),
+            col = 'black', size =3.5)+
+  geom_text(data= annot.summary.all[which(annot.summary.all$Significance <= 0.05 &
+                                           annot.summary.all$Significance > 0.01 ),],
+             aes(x= Feature, y = value*1.2, group = Type), col = 'black', label = "*", size =6)+
+  geom_text(data= annot.summary.all[which(annot.summary.all$Significance <= 0.01 &
+                                           annot.summary.all$Significance > 0.001 ),],
+             aes(x= Feature, y = value*1.2, group = Type), col = 'black', label = "**", size =6)+
+  geom_text(data= annot.summary.all[which(annot.summary.all$Significance <= 0.001 ),],
+             aes(x= Feature, y = value*1.2, group = Type), col = 'black', label = "***", size =6)+
+  geom_errorbar(aes(ymax = up, ymin = down), position=position_dodge(0.8), width = 0.5)+
+  theme_bw()+
+  facet_wrap(~Hits)+
+  xlab("Genomic Features")+
+  ylab("Percent of hits in genomic features")+
+  scale_fill_manual(values = c("mediumpurple2", "pink","lightblue"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+```
+
+*Overlap with Dev 1 study*
+```{r}
+dev.hits <- gdata::read.xls("location_of_data/Rat_DNAm/Supplementary/Supplementary tables.xlsx", 
+                            sheet=5) #can be found in same folder on github
+colnames(dev.hits) <- c("Direction","Gene","symbol","Location","CpG Island")
+dev.hits <- dev.hits[-1,]
+head(dev.hits)
+
+which(dev.hits$symbol %in% gps.annot$Symbol)
+which(dev.hits$symbol %in% female.annot$Symbol)
+which(dev.hits$symbol %in% male.annot$Symbol)
+
+dev.hits.gr <- GRanges(data.frame(chr = strsplit2(dev.hits$Direction, ":")[,1],
+                                  start = strsplit2(dev.hits$Direction, ":")[,2],
+                                  stop = strsplit2(dev.hits$Direction, ":")[,3]))
+full.gr <- GRanges(data.frame(chr = strsplit2(full.annot$genes, ":")[,1],
+                             start = strsplit2(strsplit2(full.annot$genes, ":")[,2],"-")[,1],
+                             stop = strsplit2(strsplit2(full.annot$genes, ":")[,2],"-")[,2]))
+
+full.gr[queryHits(findOverlaps(full.gr, dev.hits.gr, type="any")),] 
+
+#ZERO OVERLAPS WITH THE DEVELOPMENTAL HITS
+
+bvb.hits <- gdata::read.xls("location_of_data/Rat_DNAm/Supplementary/Supplementary tables.xlsx", 
+                            sheet=7) #can be found at same location on github
+colnames(bvb.hits) <- c("DMR","Symbol","Location","CpG Island")
+bvb.hits <- bvb.hits[-1,]
+head(bvb.hits)
+
+which(bvb.hits$symbol %in% gps.annot$Symbol)
+which(bvb.hits$symbol %in% female.annot$Symbol)
+which(bvb.hits$symbol %in% male.annot$Symbol)
+
+bvb.hits.gr <- GRanges(data.frame(chr = strsplit2(bvb.hits$DMR, ":")[,1],
+                                  start = strsplit2(bvb.hits$DMR, ":")[,2],
+                                  stop = strsplit2(bvb.hits$DMR, ":")[,3]))
+
+full.gr[queryHits(findOverlaps(full.gr, bvb.hits.gr, type="any")),] 
+#chr12:31066042-31066851 
+#chr4:8719157-8719485
+
+gps.annot[grep("chr12:31066042-31066851", gps.annot$genes),] #righto
+gps.annot[grep("chr4:8719157-8719485", gps.annot$genes),] #righto
+
+ggplot(gps.data.melt[which(gps.data.melt$variable %in% 
+                             c("chr12:31066042-31066851", "chr4:8719157-8719485")),],
+       aes(x = Sex, y= value, fill = Group))+
+  geom_boxplot()+
+  theme_bw()+
+  facet_wrap(~variable)+
+  ylab("RPKM")+
+  scale_fill_manual(values = c("#232F66","#347E35","#A50A16"))+
+  ggtitle("Hits overlap with BvB analysis (intergenic)")
+
+
+#What's the baseline?
+diff.gr <- GRanges(data.frame(chr = strsplit2(diff.annot$genes, ":")[,1],
+                             start = strsplit2(strsplit2(diff.annot$genes, ":")[,2],"-")[,1],
+                             stop = strsplit2(strsplit2(diff.annot$genes, ":")[,2],"-")[,2]))
+
+diff.dev <- suppressWarnings(diff.gr[queryHits(findOverlaps(diff.gr, dev.hits.gr, type="any")),] )
+length(diff.dev) #69 DMRs 
+dev.diff <- suppressWarnings(dev.hits.gr[queryHits(findOverlaps(dev.hits.gr, diff.gr, type="any")),] )
+length(dev.diff)
+
+diff.bvb <- suppressWarnings(diff.gr[queryHits(findOverlaps(diff.gr, bvb.hits.gr, type="any")),] )
+length(diff.bvb) #244
+length(bvb.hits.gr)
+
+dev.bvb <- suppressWarnings(dev.hits.gr[queryHits(findOverlaps(dev.hits.gr, bvb.hits.gr, type="any")),])
+length(dev.bvb) 
+
+
+```
+
+*Gene ontology*
+```{r}
+library(ermineR)
+listGemmaAnnotations()[grep("rat", listGemmaAnnotations())]
+
+rat.basic <- getGemmaAnnot(chipName = "Generic_rat_ncbiIds", 
+                             chipFile = "../diff/Generic_rat_ncbiIds.txt",
+                             annotType = "noParents",overwrite = T)
+rat.basic.file <- fread(rat.basic, header=T)
+head(rat.basic.file)
+  
+diff.rat.GO <- rat.basic.file[which(rat.basic.file$GeneSymbols %in% 
+                                                  diff.annot$Symbol),]
+dim(diff.rat.GO)
+
+#### GpS data ####
+#PAEvC
+scores <- data.frame(Gene = diff.toptags.PAEvC.GpS$table$genes, 
+                     pvalue = diff.toptags.PAEvC.GpS$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.gps.PAEvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+head(gsr.gps.PAEvC$results)
+
+#PAEvPF
+scores <- data.frame(Gene = diff.toptags.PAEvPF.GpS$table$genes, 
+                     pvalue = diff.toptags.PAEvPF.GpS$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.gps.PAEvPF <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+#PFvC
+scores <- data.frame(Gene = diff.toptags.PFvC.GpS$table$genes, 
+                     pvalue = diff.toptags.PFvC.GpS$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.gps.PFvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+
+#### Female data ####
+#PAEvC
+scores <- data.frame(Gene = diff.toptags.PAEvC.Fem$table$genes, 
+                     pvalue = diff.toptags.PAEvC.Fem$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Fem.PAEvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+#PAEvPF
+scores <- data.frame(Gene = diff.toptags.PAEvPF.Fem$table$genes, 
+                     pvalue = diff.toptags.PAEvPF.Fem$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Fem.PAEvPF <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+#PFvC
+scores <- data.frame(Gene = diff.toptags.PFvC.Fem$table$genes, 
+                     pvalue = diff.toptags.PFvC.Fem$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Fem.PFvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+
+
+#### Male data ####
+#PAEvC
+scores <- data.frame(Gene = diff.toptags.PAEvC.Male$table$genes, 
+                     pvalue = diff.toptags.PAEvC.Male$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Male.PAEvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+#PAEvPF
+scores <- data.frame(Gene = diff.toptags.PAEvPF.Male$table$genes, 
+                     pvalue = diff.toptags.PAEvPF.Male$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Male.PAEvPF <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best")
+
+#PFvC
+scores <- data.frame(Gene = diff.toptags.PFvC.Male$table$genes, 
+                     pvalue = diff.toptags.PFvC.Male$table$PValue)
+scores <- scores[match(diff.annot$genes, scores$Gene),]
+identical(scores$Gene, diff.annot$genes)
+scores$Gene <- diff.annot$Symbol
+
+gsr.Male.PFvC <- gsr(annotation = diff.rat.GO,
+      scores = scores,
+      scoreColumn = 2,
+      iterations = 10000,
+      bigIsBetter = FALSE,
+      logTrans = TRUE, aspects = c("B","C","M"), minClassSize=2, maxClassSize = 2000,
+      geneReplicates = "best",)
+
+
+```
+
+*Hits GSR analysis*
+```{r}
+#Hits GpS!
+pVc.gsr.s <- gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvC$results$CorrectedMFPvalue<=0.05),]
+pVp.gsr.s <- gsr.gps.PAEvPF$results[which(gsr.gps.PAEvPF$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvPF$results$CorrectedMFPvalue<=0.05),]
+cVp.gsr.s <- gsr.gps.PFvC$results[which(gsr.gps.PFvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PFvC$results$CorrectedMFPvalue<=0.05),]
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% pVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% cVp.gsr.s$Name),]
+dim(sig)
+head(sig[,1:5])
+
+gsr.gps.hits <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(pVp.gsr.s[which(pVp.gsr.s$Name %in% sig$Name),], Analysis = "PAE-PF"),
+                      data.frame(gsr.gps.PFvC$results[which(gsr.gps.PFvC$results$Name %in% sig$Name),],
+                                 Analysis = "PF-Con"))
+head(gsr.gps.hits[,1:3])
+
+save(gsr.gps.hits, gsr.gps.PAEvC, gsr.gps.PAEvPF, gsr.gps.PFvC, 
+     file ="../diff/results/Gene_ontology/GSR_GpS_20200517.Rdata")
+
+
+#Hits Female!
+pVc.gsr.s <- gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.Fem.PAEvC$results$CorrectedMFPvalue<=0.05),]
+pVp.gsr.s <- gsr.Fem.PAEvPF$results[which(gsr.Fem.PAEvPF$results$CorrectedPvalue<=0.05 &
+                                         gsr.Fem.PAEvPF$results$CorrectedMFPvalue<=0.05),]
+cVp.gsr.s <- gsr.Fem.PFvC$results[which(gsr.Fem.PFvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.Fem.PFvC$results$CorrectedMFPvalue<=0.05),]
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% pVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% cVp.gsr.s$Name),]
+dim(sig)
+head(sig[,1:5])
+
+gsr.Fem.hits <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(pVp.gsr.s[which(pVp.gsr.s$Name %in% sig$Name),], Analysis = "PAE-PF"),
+                      data.frame(gsr.Fem.PFvC$results[which(gsr.Fem.PFvC$results$Name %in% sig$Name),],
+                                 Analysis = "PF-Con"))
+dim(gsr.Fem.hits)
+
+save(gsr.Fem.hits, gsr.Fem.PAEvC, gsr.Fem.PAEvPF, gsr.Fem.PFvC, 
+     file ="../diff/results/Gene_ontology/GSR_Fem_20200517.Rdata")
+
+
+#Hits Male!
+pVc.gsr.s <- gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvC$results$CorrectedMFPvalue<0.05),]
+pVp.gsr.s <- gsr.Male.PAEvPF$results[which(gsr.Male.PAEvPF$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvPF$results$CorrectedMFPvalue<0.05),]
+cVp.gsr.s <- gsr.Male.PFvC$results[which(gsr.Male.PFvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PFvC$results$CorrectedMFPvalue<0.05),]
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% pVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% cVp.gsr.s$Name),]
+dim(sig)
+head(sig[,1:5])
+
+gsr.Male.hits <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(pVp.gsr.s[which(pVp.gsr.s$Name %in% sig$Name),], Analysis = "PAE-PF"),
+                      data.frame(gsr.Male.PFvC$results[which(gsr.Male.PFvC$results$Name %in% sig$Name),],
+                                 Analysis = "PF-Con"))
+dim(gsr.Male.hits)
+
+save(gsr.Male.hits, gsr.Male.PAEvC, gsr.Male.PAEvPF, gsr.Male.PFvC, 
+     file ="../diff/results/Gene_ontology/GSR_Male_20200517.Rdata")
+
+
+#Making a dataframe with all the hits
+GSR.PAEvC.all <- rbind(data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Sex-concordant"),
+                       data.frame(gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Female-specific"),
+                       data.frame(gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Male-specific"))
+                       
+head(GSR.PAEvC.all)
+
+#cleaning up
+rm(scores, gsr.gps.PAEvC, gsr.gps.PAEvPF, gsr.gps.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Fem.PAEvC, gsr.Fem.PAEvPF, gsr.Fem.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Male.PAEvC, gsr.Male.PAEvPF, gsr.Male.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+
+
+```
+
+*Hits GSR analysis - PF*
+```{r}
+load("../diff/results/Gene_ontology/GSR_GpS_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_Fem_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_Male_20200517.Rdata")
+
+pVc.gsr.s <- gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvC$results$CorrectedMFPvalue<=0.05),]
+pVp.gsr.s <- gsr.gps.PAEvPF$results[which(gsr.gps.PAEvPF$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvPF$results$CorrectedMFPvalue<=0.05),]
+cVp.gsr.s <- gsr.gps.PFvC$results[which(gsr.gps.PFvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PFvC$results$CorrectedMFPvalue<=0.05),]
+
+temp <- pVp.gsr.s[(which(pVp.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVc.gsr.s$Name),]
+dim(sig) #22
+head(sig[,1:5])
+
+gsr.gps.hits.PF <- rbind(data.frame(sig, Analysis = "PAE-PF"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-Con"))
+
+save(gsr.gps.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_GpS_PF_20201115.Rdata")
+write.csv(gsr.gps.hits.PF, "../diff/results/Gene_ontology/GSR_GpS_PF_20201115.csv", quote=F)
+
+
+#Hits Female!
+pVc.gsr.s <- gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PAEvC$results$CorrectedMFPvalue<0.05),]
+pVp.gsr.s <- gsr.Fem.PAEvPF$results[which(gsr.Fem.PAEvPF$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PAEvPF$results$CorrectedMFPvalue<0.05),]
+cVp.gsr.s <- gsr.Fem.PFvC$results[which(gsr.Fem.PFvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PFvC$results$CorrectedMFPvalue<0.05),]
+temp <- pVp.gsr.s[(which(pVp.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVc.gsr.s$Name),]
+dim(sig) #33
+head(sig[,1:5])
+
+gsr.Fem.hits.PF <- rbind(data.frame(sig, Analysis = "PAE-PF"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-Con"))
+dim(gsr.Fem.hits.PF)
+
+save(gsr.Fem.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_Fem_PF_20201115.Rdata")
+write.csv(gsr.Fem.hits.PF, "../diff/results/Gene_ontology/GSR_Fem_PF_20201115.csv", quote=F)
+
+
+#Hits Male!
+pVc.gsr.s <- gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvC$results$CorrectedMFPvalue<0.05),]
+pVp.gsr.s <- gsr.Male.PAEvPF$results[which(gsr.Male.PAEvPF$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvPF$results$CorrectedMFPvalue<0.05),]
+cVp.gsr.s <- gsr.Male.PFvC$results[which(gsr.Male.PFvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PFvC$results$CorrectedMFPvalue<0.05),]
+temp <- pVp.gsr.s[(which(pVp.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVc.gsr.s$Name),]
+dim(sig) #25
+head(sig[,1:5])
+
+gsr.Male.hits.PF <- rbind(data.frame(sig, Analysis = "PAE-PF"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-Con"))
+dim(gsr.Male.hits.PF)
+
+save(gsr.Male.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_Male_PF_20201115.Rdata")
+write.csv(gsr.Male.hits.PF, "../diff/results/Gene_ontology/GSR_Male_PF_20201115.csv", quote=F)
+
+#Making a dataframe with all the hits
+GSR.PAEvC.all.PF <- rbind(data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Sex-concordant"),
+                       data.frame(gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Female-specific"),
+                       data.frame(gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Male-specific"))
+                       
+head(GSR.PAEvC.all)
+
+#cleaning up
+rm(scores, gsr.gps.PAEvC, gsr.gps.PAEvPF, gsr.gps.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Fem.PAEvC, gsr.Fem.PAEvPF, gsr.Fem.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Male.PAEvC, gsr.Male.PAEvPF, gsr.Male.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+
+
+```
+
+*Hits GSR analysis - PF and PAE shared*
+```{r}
+load("../diff/results/Gene_ontology/GSR_GpS_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_Fem_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_Male_20200517.Rdata")
+
+pVc.gsr.s <- gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvC$results$CorrectedMFPvalue<=0.05),]
+pVp.gsr.s <- gsr.gps.PAEvPF$results[which(gsr.gps.PAEvPF$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PAEvPF$results$CorrectedMFPvalue<=0.05),]
+cVp.gsr.s <- gsr.gps.PFvC$results[which(gsr.gps.PFvC$results$CorrectedPvalue<=0.05 &
+                                         gsr.gps.PFvC$results$CorrectedMFPvalue<=0.05),]
+
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVp.gsr.s$Name),]
+dim(sig) #33
+head(sig[,1:5])
+
+gsr.gps.hits.shared <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.gps.PAEvPF$results[which(gsr.gps.PAEvPF$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-PF"))
+
+save(gsr.gps.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_GpS_PF_20201115.Rdata")
+write.csv(gsr.gps.hits.shared, "../diff/results/Gene_ontology/GSR_GpS_shared_20201115.csv", quote=F)
+
+
+#Hits Female!
+pVc.gsr.s <- gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PAEvC$results$CorrectedMFPvalue<0.05),]
+pVp.gsr.s <- gsr.Fem.PAEvPF$results[which(gsr.Fem.PAEvPF$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PAEvPF$results$CorrectedMFPvalue<0.05),]
+cVp.gsr.s <- gsr.Fem.PFvC$results[which(gsr.Fem.PFvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Fem.PFvC$results$CorrectedMFPvalue<0.05),]
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVp.gsr.s$Name),]
+dim(sig) #26
+head(sig[,1:5])
+
+gsr.Fem.hits.PF <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.Fem.PAEvPF$results[which(gsr.Fem.PAEvPF$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-PF"))
+dim(gsr.Fem.hits.PF)
+
+save(gsr.Fem.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_Fem_PF_20201115.Rdata")
+write.csv(gsr.Fem.hits.PF, "../diff/results/Gene_ontology/GSR_Fem_shared_20201115.csv", quote=F)
+
+
+#Hits Male!
+pVc.gsr.s <- gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvC$results$CorrectedMFPvalue<0.05),]
+pVp.gsr.s <- gsr.Male.PAEvPF$results[which(gsr.Male.PAEvPF$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PAEvPF$results$CorrectedMFPvalue<0.05),]
+cVp.gsr.s <- gsr.Male.PFvC$results[which(gsr.Male.PFvC$results$CorrectedPvalue<0.05 &
+                                         gsr.Male.PFvC$results$CorrectedMFPvalue<0.05),]
+temp <- pVc.gsr.s[(which(pVc.gsr.s$Name %in% cVp.gsr.s$Name)),]
+sig <- temp[-which(temp$Name %in% pVp.gsr.s$Name),]
+dim(sig) #10
+head(sig[,1:5])
+
+gsr.Male.hits.PF <- rbind(data.frame(sig, Analysis = "PAE-Con"),
+                      data.frame(cVp.gsr.s[which(cVp.gsr.s$Name %in% sig$Name),], Analysis = "PF-Con"),
+                      data.frame(gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$Name %in% sig$Name),],
+                                 Analysis = "PAE-PF"))
+dim(gsr.Male.hits.PF)
+
+save(gsr.Male.hits.PF,
+     file ="../diff/results/Gene_ontology/GSR_Male_PF_20201115.Rdata")
+write.csv(gsr.Male.hits.PF, "../diff/results/Gene_ontology/GSR_Male_shared_20201115.csv", quote=F)
+
+#Making a dataframe with all the hits
+GSR.PAEvC.all.PF <- rbind(data.frame(gsr.gps.PAEvC$results[which(gsr.gps.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Sex-concordant"),
+                       data.frame(gsr.Fem.PAEvC$results[which(gsr.Fem.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Female-specific"),
+                       data.frame(gsr.Male.PAEvC$results[which(gsr.Male.PAEvC$results$Name %in% 
+                                                          c(gsr.gps.hits$Name, 
+                                                            gsr.Fem.hits$Name, 
+                                                            gsr.Male.hits$Name)),], 
+                            Analysis = "Male-specific"))
+                       
+head(GSR.PAEvC.all)
+
+#cleaning up
+rm(scores, gsr.gps.PAEvC, gsr.gps.PAEvPF, gsr.gps.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Fem.PAEvC, gsr.Fem.PAEvPF, gsr.Fem.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+rm(scores, gsr.Male.PAEvC, gsr.Male.PAEvPF, gsr.Male.PFvC, pVc.gsr.s, pVp.gsr.s, cVp.gsr.s, temp, sig)
+
+
+```
+
+*Lollipop plots of gene ontology*
+```{r}
+load("../diff/results/Gene_ontology/GSR_Fem_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_GpS_20200517.Rdata")
+load("../diff/results/Gene_ontology/GSR_Male_20200517.Rdata")
+
+
+colnames(gsr.gps.hits)
+ggplot(gsr.gps.hits, aes(y = -log10(CorrectedMFPvalue), x= Name) )+
+  geom_bar(stat='identity', position = position_dodge(width=0.5),width=0.1, 
+           aes(fill =Analysis, group =Analysis))+
+  geom_point(size = 3,shape=21, position = position_dodge(width=0.5), fill="white",aes(col=Analysis))+
+  theme_classic()+
+  theme(axis.text.y = element_text(size= 12))+
+  scale_fill_viridis(discrete=T)+
+  scale_color_viridis(discrete=T)+
+  geom_hline(aes(yintercept=-log10(0.05)), col = 'grey',linetype=2)+
+  ylab("-log10(Corrected Multifunctionality p-value)")+
+  xlab("Gene ontology term")+
+  coord_flip()
+
+
+ggplot(gsr.Fem.hits, aes(y = -log10(CorrectedMFPvalue), x= Name) )+
+  geom_bar(stat='identity', position = position_dodge(width=0.5),width=0.1, 
+           aes(fill =Analysis, group =Analysis))+
+  geom_point(size = 3,shape=21, position = position_dodge(width=0.5), fill="white",aes(col=Analysis))+
+  theme_classic()+
+  theme(axis.text.y = element_text(size= 12))+
+  scale_fill_viridis(discrete=T)+
+  scale_color_viridis(discrete=T)+
+  geom_hline(aes(yintercept=-log10(0.05)), col = 'grey',linetype=2)+
+  ylab("-log10(Corrected Multifunctionality p-value)")+
+  xlab("Gene ontology term")+
+  coord_flip()
+
+ggplot(gsr.Male.hits, aes(y = -log10(CorrectedMFPvalue), x= Name) )+
+  geom_bar(stat='identity', position = position_dodge(width=0.5),width=0.1, 
+           aes(fill =Analysis, group =Analysis))+
+  geom_point(size = 3,shape=21, position = position_dodge(width=0.5), fill="white",aes(col=Analysis))+
+  theme_classic()+
+  theme(axis.text.y = element_text(size= 12))+
+  scale_fill_manual(values = c("#A50A16", "#232F66", "#347E35" ))+
+  scale_color_manual(values = c("#A50A16", "#232F66", "#347E35" ))+
+  geom_hline(aes(yintercept=-log10(0.05)), col = 'grey',linetype=2)+
+  ylab("-log10(Corrected Multifunctionality p-value)")+
+  xlab("Gene ontology term")+
+  coord_flip()
+
+
+ggplot(GSR.PAEvC.all, aes(y = -log10(CorrectedMFPvalue), x= Name) )+
+  geom_bar(stat='identity', position = position_dodge(width=0.5),width=0.1, 
+           aes(fill =Analysis, group =Analysis))+
+  geom_point(size = 3,shape=21, position = position_dodge(width=0.5), fill="white",aes(col=Analysis))+
+  theme_classic()+
+  theme(axis.text.y = element_text(size= 12))+
+  scale_fill_manual(values = c("mediumpurple2","pink","lightblue"))+
+  scale_color_manual(values = c("mediumpurple2","pink","lightblue"))+
+  geom_hline(aes(yintercept=-log10(0.05)), col = 'grey',linetype=2)+
+  ylab("-log10(P-value)")+
+  xlab("Gene ontology term")+
+  coord_flip()
+
+```
+

@@ -1,0 +1,217 @@
+---
+title: "Pre-processing of peakset for analysis of sex differences"
+output: html_document
+---
+
+*Loading libraries*
+```{r}
+library(broom)
+library(data.table)
+library(DiffBind)
+library(dplyr)
+library(edgeR)
+library(ggplot2)
+library(gplots)
+library(grid)
+library(gridExtra)
+library(limma)
+library(RColorBrewer)
+library(reshape)
+library(sva)
+library(VennDiagram)
+
+setwd("location_of_data")
+source("location_of_data/PCA_Heat_Map_Scree.R")
+col = colorRampPalette(brewer.pal(10,"RdYlBu")[1:10])(30)
+```
+
+#loading metadata
+```{r}
+diff.meta <- fread("dev2.diff.index.txt")[,-1]
+head(diff.meta)
+diff.meta$group <- factor(diff.meta$group, levels= c("C","PF","PAE"))
+diff.meta$chip <- factor(diff.meta$chip)
+diff.meta$sex <- factor(diff.meta$sex, levels = c("F","M"))
+diff.meta$replicate <- factor(diff.meta$replicate)
+
+
+meta.all <- fread("../index.full.txt")
+meta.all.diff <- meta.all[which(meta.all$id %in% diff.meta$id), ]
+meta.all.diff <-meta.all.diff[match(diff.meta$id, meta.all.diff$id),]
+identical(diff.meta$id,meta.all.diff$id)
+
+diff.meta$extraction <- factor(meta.all.diff$extraction)
+diff.meta <- diff.meta[,-c("reads","peaks","filename")]
+head(diff.meta)
+
+rm(meta.all, meta.all.diff)
+```
+
+#Loading peakset
+```{r}
+load("dev2.diff.peakset.OL3.Rdata")
+
+#summarizing peaks names
+diff.peaks.info <- diff.peakset.OL3$peaks[[1]][,1:3]
+diff.peaks.info$length <- diff.peaks.info$End - diff.peaks.info$Start
+summary(diff.peaks.info$length)  
+plot(density(diff.peaks.info$length))
+head(diff.peaks.info)
+diff.peaks.info$name <- paste(paste(diff.peaks.info$Chr, 
+                                    diff.peaks.info$Start, sep =":"), 
+                              diff.peaks.info$End, sep ="-")
+head(diff.peaks.info)
+diff.peaks.info <- diff.peaks.info[,c("name","Chr","Start","End","length")]
+
+#Getting read numbers
+diff.reads <- do.call(cbind,lapply(1:length(diff.peakset.OL3$peaks), function(x){
+  diff.peakset.OL3$peaks[[x]]$Reads
+}))
+colnames(diff.reads) <- names(diff.peakset.OL3$masks$counts)
+colnames(diff.reads)[1:15] <- paste(colnames(diff.reads)[1:15], "F",sep="_")
+colnames(diff.reads)[16:30] <- paste(colnames(diff.reads)[16:30], "M",sep="_")
+rownames(diff.reads) <- diff.peaks.info$name
+head(diff.reads)
+
+#Getting RPKM
+diff.rpkm <- do.call(cbind,lapply(1:length(diff.peakset.OL3$peaks), function(x){
+  diff.peakset.OL3$peaks[[x]]$RPKM
+}))
+colnames(diff.rpkm) <- names(diff.peakset.OL3$masks$counts)
+colnames(diff.rpkm)[1:15] <- paste(colnames(diff.rpkm)[1:15], "F",sep="_")
+colnames(diff.rpkm)[16:30] <- paste(colnames(diff.rpkm)[16:30], "M",sep="_")
+rownames(diff.rpkm) <- diff.peaks.info$name
+head(diff.rpkm)
+
+#filtering sex chromosomes
+diff.sexChr <- diff.rpkm[c(grep("chrX", rownames(diff.rpkm)),
+                          grep("chrY", rownames(diff.rpkm))),]
+dim(diff.sexChr)
+
+heatmap.2(diff.sexChr[grep("chrY", rownames(diff.sexChr)),], 
+          trace='none', ColSideColors = c(rep("red",15), rep("blue", 15)), 
+          scale= "row")
+head(diff.sexChr)
+
+diff.reads.filt <- diff.reads[-which(rownames(diff.reads) %in% rownames(diff.sexChr)),]
+diff.rpkm.filt <- diff.rpkm[-which(rownames(diff.rpkm) %in% rownames(diff.sexChr)),]
+dim(diff.reads.filt)
+length(which(rowMeans(diff.rpkm) <1))
+
+# ADJUSTING TO READS/KB
+peak.size <- diff.peaks.info$length/1000
+diff.reads.per.kb <- do.call(rbind, lapply(1:length(peak.size), function(x) {
+  diff.reads[x,]/peak.size[x] } ))
+dim(diff.reads.per.kb)
+rownames(diff.reads.per.kb) <- diff.peaks.info$name
+diff.reads.per.kb.filt <- diff.reads.per.kb[which(rownames(diff.reads.per.kb) %in%
+                                                    rownames(diff.reads.filt)),]
+diff.reads.per.kb.filt[1,1]
+diff.reads.filt[1,1]
+diff.rpkm.filt[1,1]
+diff.peakset.OL3$class
+total.reads <- (diff.reads.per.kb.filt[1,]/diff.rpkm.filt[1,])*1e6
+
+#total reads and peaks-only reads
+diff.meta$total.reads <- total.reads ## exactly the same as in the peakset file = coolio
+diff.meta$peak.reads <- colSums(diff.reads.filt)
+
+#RPKM for the peaks only
+diff.rpkm.peaks <- cpm(diff.reads.filt, lib.size =as.numeric(diff.meta$peak.reads, log=F))
+head(diff.rpkm.peaks)
+
+
+#correlation heatmaps
+ext.round.col <- diff.meta$extraction
+ext.round.col <- gsub("1","red", ext.round.col)
+ext.round.col <- gsub("2","blue", ext.round.col)
+ext.round.col <- gsub("4","green", ext.round.col)
+
+chip.col <- diff.meta$chip
+chip.col <- gsub("UEX000299", "purple", 
+                 gsub("UEX000298", "yellow", 
+                      gsub("UEX000297", "green", 
+                           gsub("UEX000296", "blue", 
+                                gsub("UEX000295","red", chip.col)))))
+sex.col <- c(rep("red",15),rep("blue",15))
+
+heatmap.2(cor(diff.rpkm.peaks, method="spearman"), col= col, trace="none",dendrogram="col",
+          main="Pairwise Spearman Correlations", margins=c(7,7),
+          ColSideColors = chip.col)
+#There are 6 samples that are awfully strange and I'm not certain why.. 
+  # might be some chip effects
+#save(diff.meta, file = "~/Dropbox (Partners HealthCare)/Side projects/dev2.0/diff/diff.meta.Rdata")
+load("location_of_data/diff.meta.Rdata")
+```
+
+#PCA
+```{r}
+meta_categorical <- data.frame(diff.meta[,c("sex","extraction","chip","group")])
+meta_continuous <- data.frame(diff.meta[,c("total.reads","peak.reads")])
+
+PCA_full<- princomp(diff.rpkm.filt, cor=F) #cor=T when raw data
+Loadings <- as.data.frame(unclass(PCA_full$loadings))
+vars <- PCA_full$sdev^2
+Importance<-vars/sum(vars)
+heat_scree_plot(Loadings, Importance)
+
+```
+
+#ComBat to remove chip effects
+```{r}
+mod.com = model.matrix(~group+sex, data=diff.meta)
+batch.com = diff.meta$chip
+set.seed(17)
+diff.rpkm.filt.combat <- ComBat(dat= diff.rpkm.filt, batch=batch.com, mod=mod.com,
+                              par.prior=T, prior.plots=F)
+#head(diff.rpkm.filt.combat)
+
+PCA_full<- princomp(diff.rpkm.filt.combat, cor=F)
+Loadings <- as.data.frame(unclass(PCA_full$loadings))
+vars <- PCA_full$sdev^2
+Importance<-vars/sum(vars)
+heat_scree_plot(Loadings, Importance)
+
+#save(diff.rpkm.filt.combat, file = "diff.rpkm.filt.combat.Rdata")
+
+#clustering
+e <- cor(diff.rpkm.filt.combat, method="spearman")
+plot(hclust(dist(1-e))) # Sample tree 
+
+
+heatmap.2(cor(diff.rpkm.filt, method="spearman"), col= col, trace="none",dendrogram="col",
+          main="Pairwise Spearman Correlations of non-corrected (chip)", margins=c(7,7),
+          ColSideColors = chip.col)
+
+```
+
+*Preparing data for input into edgeR*
+```{r}
+version
+load("location_of_data/diff.rpkm.filt.combat.Rdata", verbose=T)
+
+#undoing counts per million 
+diff.rpkm.filt.combat.preEdgeR <- do.call(cbind, lapply(1:nrow(diff.meta), function(x){
+  diff.rpkm.filt.combat[,x] * (as.numeric(diff.meta$total.reads[x])/1000000) 
+}))
+head(diff.rpkm.filt.combat.preEdgeR)
+colnames(diff.rpkm.filt.combat.preEdgeR) <- colnames(diff.rpkm.filt.combat)
+
+diff.rpkm.filt.combat.preEdgeR[which(diff.rpkm.filt.combat.preEdgeR<0)] <-0
+
+
+#creating DGEList object for edgeR
+diff.dge <- DGEList(counts= diff.rpkm.filt.combat.preEdgeR, 
+                    genes= rownames(diff.rpkm.filt.combat.preEdgeR),
+                    group= diff.meta$group, norm.factors = NULL, remove.zeros=TRUE,
+                    lib.size=as.numeric(diff.meta$total.reads))
+diff.dge$samples$sex <- as.factor(diff.meta$sex)
+diff.dge$samples$chip <- as.factor(diff.meta$chip)
+diff.dge$samples$extraction <- as.factor(diff.meta$extraction)
+diff.dge$samples$peak.reads <- diff.meta$peak.reads
+
+#estimating common and tagwise dispersion 
+diff.dge <- estimateCommonDisp(diff.dge)
+diff.dge <- estimateTagwiseDisp(diff.dge)
+save(diff.dge, file = "location_of_data/diff.dge.Rdata")
+```
