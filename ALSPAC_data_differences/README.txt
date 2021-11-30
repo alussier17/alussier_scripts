@@ -6,9 +6,7 @@ Last updated:	November 29, 2021
 In this folder, you can find the following information regarding our manuscript. 
 
 1. Manuscripts (ADD PDFS). 
-	- Preprint of the manuscript by Lussier and colleagues described here. 
 	- Manuscript by Zhu and colleagues, which describes the application of the SLCMA to epigenome-wide settings.
-	
 	- Manuscript by Dunn and colleagues, which describes the application of the SLCMA to analysis the time-dependent relationship between childhood adversity and DNA methylation.
 	- Supplemental
 
