@@ -1,0 +1,1190 @@
+---
+title: "Figures for data differences paper"
+output: html_document
+---
+*Libraries and path*
+```{r}
+library(dplyr)
+library(ggplot2)
+library(limma)
+library(matrixStats)
+library(reshape)
+library(viridis)
+library(tidy)
+library(eulerr)
+library(gridExtra)
+library(gplots)
+library(ggalluvial)
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/")
+
+```
+
+*Loading SCLMA and EWAS results*
+```{r}
+#loading SCLMA adversity results
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/age7.all.results.2021-09-21.Rdata",
+     verbose=T)
+
+#loading SCLMA smoking results
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/smoking.slcma.results.2021-09-21.Rdata",
+     verbose=T)
+smoking.slcma$Data <- factor(smoking.slcma$Data, levels = c("Old","New"))
+smoking.slcma$Method <- gsub("CovTest","covTest",smoking.slcma$Method)
+
+```
+
+*QQ plots*
+```{r}
+slcma <- rbind(age7.all.results, smoking.slcma)
+slcma <- slcma[!slcma$Analysis==4,]
+
+labels <- c("Sexual/physical abuse","Financial hardship",
+            "Maternal psychopathology","Neighbordhood disadvantage",
+            "One-adult household","Caregiver abuse",
+            "Family instability","Smoking")
+names(labels) <- levels(factor(slcma$Adversity))
+
+#p-value distributions
+ggplot(slcma, aes(x= P.value, col = Analysis, linetype=Analysis))+
+  geom_density(size = 1.17)+
+  facet_wrap(. ~Adversity, ncol=4,
+             labeller=labeller(Adversity = labels))+
+  theme_classic()+
+  xlab("P-value distribution")+
+  ylab("Density")+
+  scale_color_manual(values = viridis(n=3, end=.7), "Data version",
+                     labels = c("Old data, covTest","New data, covTest","New data, sI"))+
+  scale_linetype_manual(values = c(1,3,4), "Data version",
+                        labels = c("Old data, covTest","New data, covTest","New data, sI"))+
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size=14))
+
+
+#qqplots
+#adapted from https://slowkow.com/notes/ggplot2-qqplot/
+gg_qqplot <- function(ps, ci = 0.95) {
+  n  <- length(ps)
+  df <- data.frame(
+    observed = -log10(sort(ps)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1))
+  )
+  log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+  log10Po <- expression(paste("Observed -log"[10], plain(P)))
+  ggplot(df) +
+    geom_ribbon(
+      mapping = aes(x = expected, ymin = clower, ymax = cupper),
+      alpha = 0.1
+    ) +
+    geom_point(aes(expected, observed), shape = 1, size = 3) +
+    geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+    # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+    # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+    xlab(log10Pe) +
+    ylab(log10Po)
+}
+inflation.sigma <- function(ps) {
+  chisq <- qchisq(1 - ps, 1)
+  lambda <- median(chisq) / qchisq(0.5, 1)
+  lambda
+}
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Plots/")
+
+for(i in  unique(slcma$Adversity)){
+  ps1 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="Old" & slcma$Method == "covTest"]
+  ps2 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "covTest"]
+  ps3 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "sI"]
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " - old data - covTest"))
+  
+  
+ rm(ps1, ps2, ps3) 
+}
+
+for(i in unique(slcma$Adversity)){
+  #old data covTest
+  print(paste0("Adversity = ", i, "   Data = old", "   Analysis = covTest"))
+  ps = slcma$P.value[slcma$Adversity== i & slcma$Data=="Old" & slcma$Method == "covTest"]
+  png(paste0("QQplots/SLCMA/01_old_covTest/01_old_covTest_", i,".png"), width = 600, height =400)
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " - old data - covTest"))
+  print(p)
+  dev.off()
+  rm(p, ps)
+  
+  #new data covTest
+  print(paste0("Adversity = ", i, "   Data = new", "   Analysis = covTest"))
+  ps = slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "covTest"]
+  png(paste0("QQplots/SLCMA/02_new_covTest/02_new_covTest_", i,".png"), width = 600, height =400)
+  
+  
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " - new data - covTest"))
+  print(p)
+  dev.off()
+  rm(p, ps)
+  
+  #new data sI
+  print(paste0("Adversity = ", i, "   Data = new", "   Analysis = sI"))
+  ps = slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "sI" &
+                       slcma$Covars=="Updated"]
+  png(paste0("QQplots/SLCMA/03_new_sI/03_new_sI_", i,".png"), width = 600, height =400)
+  
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " - new data - sI"))
+  print(p)
+  dev.off()
+  rm(p, ps)
+  rm(i)
+  
+}
+
+rm(gg_qqplot, inflation.sigma, slcma)
+
+#combined qqplots - better
+#qqplots
+#adapted from https://slowkow.com/notes/ggplot2-qqplot/
+gg_qqplot.2 <- function(ps1, ps2, ps3, ci = 0.95) {
+  n  <- length(ps1)
+  df1 <- data.frame(
+    observed = -log10(sort(ps1)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    Analysis = "Old data - original methods"
+  )
+  
+  df2 <- data.frame(
+    observed = -log10(sort(ps2)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    Analysis = "New data - original methods"
+  )
+  
+  df3 <- data.frame(
+    observed = -log10(sort(ps3)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    Analysis = "New data - updated methods"
+  )
+  
+  df <- rbind(df1, df2, df3)
+  
+  log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+  log10Po <- expression(paste("Observed -log"[10], plain(P)))
+  
+  ggplot(df) +
+    geom_ribbon(
+      mapping = aes(x = expected, ymin = clower, ymax = cupper),
+      alpha = 0.1
+    ) +
+    geom_point(aes(expected, observed, shape = Analysis, col = Analysis), size = 3) +
+    geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+    # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+    # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+    xlab(log10Pe) +
+    ylab(log10Po)
+}
+inflation.sigma <- function(ps) {
+  chisq <- qchisq(1 - ps, 1)
+  lambda <- median(chisq) / qchisq(0.5, 1)
+  lambda
+}
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Plots/")
+
+for(i in unique(slcma$Adversity)){
+  print(i)
+  ps1 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="Old" & slcma$Method == "covTest"]
+  ps2 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "covTest"]
+  ps3 <- slcma$P.value[slcma$Adversity== i & slcma$Data=="New" & slcma$Method == "sI"]
+  png(paste0("QQplots/SLCMA/04_combined/04_combined_", i,".png"), width = 900, height =600)
+    
+  p <- gg_qqplot.2(ps1, ps2, ps3) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = paste0(sprintf("λ (old, original) = %.2f", inflation.sigma(ps1)), "\n",
+                         sprintf("λ (new, original)= %.2f", inflation.sigma(ps2)), "\n",
+                         sprintf("λ (new, updated)= %.2f", inflation.sigma(ps3)))) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    scale_color_manual(values = viridis(n=3, end=.7))+
+    ggtitle(labels[names(labels)==i][[1]])
+    print(p)
+    dev.off()
+    rm(ps1, ps2, ps3,p) 
+}
+
+rm(gg_qqplot.2, inflation.sigma, slcma)
+
+```
+
+*Adversity contrasts*
+```{r}
+
+adversity.slcma.sig <- age7.all.results[which(age7.all.results$FDR<=0.05),]
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==1)]))
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==2)]))
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==6)]))
+summary(factor(adversity.slcma.sig$Analysis))
+
+#venn diagrams - Figure 3E, 4A
+adversity.venn.data.cov <- list(Old = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="Old" & 
+                                                          adversity.slcma.sig$Method =="covTest"],
+                            New = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Method =="covTest"])
+plot(euler(adversity.venn.data.cov), quantities=T, main = "Hits at FDR<0.05 between data version (covTest)") #332-33-447 ; 33/812 ; 4.1%
+
+adversity.venn.data.method <- list(Original_covTest = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Covars =="Original" &
+                                                            adversity.slcma.sig$Method == "covTest"],
+                            Updated_sI = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Covars =="Updated" &
+                                                            adversity.slcma.sig$Method == "sI"])
+plot(euler(adversity.venn.data.method), quantities=T, 
+     main = "Hits at FDR<0.05 between methods (New data)") #449-42-4 ; 42/495; 8.5%
+plot(euler(adversity.venn.data.method), quantities=F, labels=F,
+     main = "Hits at FDR<0.05 between methods (New data)")
+rm(adversity.venn.data.method, adversity.venn.data.cov)
+
+
+#Venn diagrams - Bonferroni
+adversity.slcma.sig2 <- age7.all.results[age7.all.results$bonf<0.05,]
+adversity.venn.data.cov <- list(Old = adversity.slcma.sig2$unique_adversity[adversity.slcma.sig2$Data =="Old" & 
+                                                          adversity.slcma.sig2$Method =="covTest"],
+                            New = adversity.slcma.sig2$unique_adversity[adversity.slcma.sig2$Data =="New" & 
+                                                          adversity.slcma.sig2$Method =="covTest"])
+plot(euler(adversity.venn.data.cov), quantities=T, main = "Hits at FDR<0.05 between data version (covTest)") #37-8-38; 8/83; 9.6%
+
+
+adversity.venn.data.method <- list(Original_covTest =
+                                     adversity.slcma.sig2$unique_adversity[adversity.slcma.sig2$Data =="New" & 
+                                                          adversity.slcma.sig2$Covars =="Original" &
+                                                            adversity.slcma.sig2$Method == "covTest"],
+                            Updated_sI = adversity.slcma.sig2$unique_adversity[
+                              adversity.slcma.sig2$Data =="New" & 
+                                                          adversity.slcma.sig2$Covars =="Updated" &
+                                                            adversity.slcma.sig2$Method == "sI"])
+plot(euler(adversity.venn.data.method), quantities=T, 
+     main = "Hits at FDR<0.05 between methods (New data)") #41-5-1; 5/47; 10.6%
+plot(euler(adversity.venn.data.method), quantities=F, labels=F,
+     main = "Hits at FDR<0.05 between methods (New data)")
+
+rm(adversity.venn.data.method, adversity.venn.data.cov)
+
+
+#bargraphs - Figure 3F, 4B
+adversity.slcma.sig$Adversity <- factor(adversity.slcma.sig$Adversity, 
+                                        levels = c("abuse","Fscore","r_faminstability",
+                                                   "mompsych","nbhqual","oneadult","parcruelty"))
+
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Method=='covTest',], aes(x = Timing, fill = Adversity))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Data)+
+  scale_fill_viridis(option='plasma', discrete=T, end =0.9,
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"))+
+  ylab("Hits at FDR<0.05")+
+  scale_x_discrete(labels = c("Very early","Early","Middle", 'Accumulation', 'Recency'))+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+  
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Analysis %in% c(2,6),], aes(x = Timing, fill = Adversity))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Covars)+
+  scale_fill_viridis(option='plasma', discrete=T, end =0.9,
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty")
+  )+
+  ylab("Hits at FDR<0.05")+
+  scale_x_discrete(labels = c("Very early","Early","Middle", 'Accumulation', 'Recency'))+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12))
+
+#Alluvial plots - Figure 3G, 4C
+adversity.alluvial.covtest <- age7.all.results[which(age7.all.results$unique_adversity %in% 
+                                                       adversity.slcma.sig$unique_adversity[
+                                                         adversity.slcma.sig$Method =='covTest']),]
+adversity.alluvial.covtest$overlap <- "No"
+
+ggplot(adversity.alluvial.covtest[which(adversity.alluvial.covtest$Method=="covTest"),],
+       aes(x = Data, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("Very early","Early","Middle",
+                                            "Accumulation","Recency"))+
+  xlab("Data version")+
+  ylab("Hits at FDR<0.05 in either data version")
+
+
+#alluvials for new data
+adversity.alluvial.method <- age7.all.results[which(age7.all.results$unique_adversity %in% 
+                                                       adversity.slcma.sig$unique_adversity[
+                                                         adversity.slcma.sig$Analysis %in% c(2,6)]),]
+
+dim(adversity.alluvial.method[which(adversity.alluvial.method$Data=="New"),])/2
+
+ggplot(adversity.alluvial.method[which(adversity.alluvial.method$Analysis %in% c(2,6)),],
+       aes(x = Covars, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("Very early","Early","Middle",
+                                            "Accumulation","Recency"))+
+  xlab("Analytic version")+
+  ylab("Hits at FDR<0.05 in either analytic version")
+
+rm(adversity.alluvial.covtest, adversity.alluvial.method)
+``` 
+
+*delta betas*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/ARIES_noTwin_20180730.Rdata")
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+twins <- rownames(tbetas.winsor)[-(which(age(tbetas.winsor) %in% df$ID))]
+rm(df)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+dim(beast)
+colnames(beast)[grep("DNAm", colnames(beast))]
+
+beast <- beast[-which(paste0(beast$cidB1471, beast$qlet) %in% twins),]
+beast.DNAm.old <- beast[(which(beast$DNAm_7y=="available")),]
+beast.DNAm.old$ID <- paste0(beast.DNAm.old$cidB1471, beast.DNAm.old$qlet)
+beast.DNAm.new <- beast[(which(beast$DNAm2020_F7=="yes")),]
+beast.DNAm.new$ID <- paste0(beast.DNAm.new$cidB1471, beast.DNAm.new$qlet)
+
+length(which(beast.DNAm.old$ID %in% beast.DNAm.new$ID))
+beast.DNAm.old <- beast.DNAm.old[which(beast.DNAm.old$ID %in% beast.DNAm.new$ID),]
+beast.DNAm.new <- beast.DNAm.new[which(beast.DNAm.new$ID %in% beast.DNAm.old$ID),]
+dim(beast.DNAm.new)
+dim(beast.DNAm.old)
+rm(beast)
+
+#loading DNAm data
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+dim(tbetas.winsor)
+tbetas.winsor <- tbetas.winsor[match(beast.DNAm.old$ID, rownames(tbetas.winsor)),]
+dim(tbetas.winsor)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_F7_WIN_20200128.Rdata", verbose=T)
+f7.sample <- read.table("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_F7_20200121.txt", header=T)
+head(f7.sample)
+identical(as.character(f7.sample$Sample_Name), rownames(betas.f7.win)) #true
+rownames(betas.f7.win) <- paste0(f7.sample$ALN, f7.sample$QLET)
+rm(f7.sample)
+
+betas.f7.win <- betas.f7.win[match(beast.DNAm.new$ID, rownames(betas.f7.win)),]
+dim(betas.f7.win)
+rm(beast)
+
+adversity.slcma.sig.covTest <- adversity.slcma.sig[which(adversity.slcma.sig$Method=="covTest"),]
+dim(adversity.slcma.sig.covTest)
+
+age7.sig.db <- do.call(rbind, lapply(1:nrow(adversity.slcma.sig.covTest), function(i){
+  if(i %% 50 ==0){print(i)}
+  model <- adversity.slcma.sig.covTest$Model[i]
+  cpg <- as.character(adversity.slcma.sig.covTest$CpG[i])
+  adversity <- adversity.slcma.sig.covTest$Adversity[i]
+  adv.name <- paste(adversity, model, sep = "_")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(adversity.slcma.sig.covTest[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+head(age7.sig.db)
+
+multi.hits <- age7.sig.db$unique[which(duplicated(age7.sig.db$unique))]
+
+age7.sig.db$multi <- "Unique"
+age7.sig.db$multi[which(age7.sig.db$unique %in% multi.hits)] <- "Overlapping"
+summary(factor(age7.sig.db$multi))
+
+## scatterplot of delta betas - fig 3H
+age7.sig.db$concordance <- "Non-concordant"
+age7.sig.db$concordance[age7.sig.db$new.delta<0 & age7.sig.db$old.delta<0] <- "Concordant"
+age7.sig.db$concordance[age7.sig.db$new.delta>0 & age7.sig.db$old.delta>0] <- "Concordant"
+summary(as.factor(age7.sig.db$concordance))
+
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta<0 & age7.sig.db$old.delta<0)])))
+#472 down concordant
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta>0 & age7.sig.db$old.delta>0)]))) 
+#257 up concordant
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta>0 & age7.sig.db$old.delta<0)]))) 
+#26 non-concordant
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta>0 & age7.sig.db$old.delta>0)]))) 
+#35 non-concordant
+head(age7.sig.db)
+
+
+ggplot(age7.sig.db, aes(y = new.delta, x= old.delta))+
+  #geom_smooth(method = 'lm', se = F)+
+  geom_abline(linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  geom_point(aes(col = multi), size=1.5)+
+  geom_point(data=age7.sig.db[which(age7.sig.db$multi == "Overlapping"),],
+             size=1.5, col = 'red')+
+  #geom_point(, col = "red", size=1)+
+  scale_color_manual(values = c("red","black"), "")+
+  scale_shape_discrete("Analysis")+
+  xlim(-0.15, 0.15)+
+  ylim(-0.15, 0.15)+
+  #facet_wrap(~multi.dat)+
+  xlab("DNA methylation change (exposed-unexposed)\nOld data")+
+  ylab("New data\nDNA methylation change (exposed-unexposed)")+
+  geom_text(inherit.aes = F, aes(x= -0.08, y = 0.15, label = "Non-concordant (26)"), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= 0.08, y = -0.15, label = "Non-concordant (35)" ), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= -0.08, y = -0.15, label = "Concordant down (472)"), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= 0.08, y = 0.15, label = "Concordant up (257)"), size = 4.5)+
+  theme(axis.text = element_text(size = 12), 
+        axis.title = element_text(size=14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12))
+
+cor(age7.sig.db$old.delta, age7.sig.db$new.delta, use = "complete.obs") #r=0.854
+summary(lm(old.delta ~new.delta, data = age7.sig.db)) #p<2.2e-16; r2 = 0.729
+
+## delta beta all + table
+
+adversity.slcma.sig.db <- do.call(rbind, lapply(1:nrow(adversity.slcma.sig), function(i){
+  if(i %% 50 ==0){print(i)}
+  model <- adversity.slcma.sig$Model[i]
+  cpg <- as.character(adversity.slcma.sig$CpG[i])
+  adversity <- adversity.slcma.sig$Adversity[i]
+  adv.name <- paste(adversity, model, sep = "_")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(adversity.slcma.sig[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+head(adversity.slcma.sig.db)
+tail(adversity.slcma.sig.db)
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/")
+write.table(adversity.slcma.sig.db, file ="age7.results.2021-09-22.txt", sep="\t", quote=F,
+            row.names = F, col.names=T)
+
+reps <- names(summary(factor(adversity.slcma.sig.db$unique))[summary(factor(adversity.slcma.sig.db$unique)) >2])
+adversity.slcma.sig.db[which(adversity.slcma.sig.db$unique %in% reps),]
+write.table(reps, file= "age7.replicates.2021-09-22.txt",sep="\t",quote=F, row.names=F, col.names=T)
+
+rm(adversity.slcma.sig.db, beast.DNAm.new, beast.DNAm.old,
+   multi.hits, twins, age7.sig.db, reps, tbetas.winsor, 
+   betas.f7.win)
+rm(cpgs.overlap)
+
+```
+
+*Bonferroni-corrected hits*
+```{r}
+
+adversity.slcma.sig <- age7.all.results[which(age7.all.results$bonf<=0.05),]
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==1)]))
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==2)]))
+summary(factor(adversity.slcma.sig$Adversity[(adversity.slcma.sig$Analysis==6)]))
+summary(factor(adversity.slcma.sig$Analysis))
+
+#venn diagrams - Figure 3E, 4A
+adversity.venn.data.cov <- list(Old = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="Old" & 
+                                                          adversity.slcma.sig$Method =="covTest"],
+                            New = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Method =="covTest"])
+plot(euler(adversity.venn.data.cov), quantities=T, main = "Hits at q<0.05 between data version (covTest)") #37-8-38; 8/83; 0.096
+
+adversity.venn.data.method <- list(Original_covTest = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Covars =="Original" &
+                                                            adversity.slcma.sig$Method == "covTest"],
+                            Updated_sI = adversity.slcma.sig$unique_adversity[adversity.slcma.sig$Data =="New" & 
+                                                          adversity.slcma.sig$Covars =="Updated" &
+                                                            adversity.slcma.sig$Method == "sI"])
+plot(euler(adversity.venn.data.method), quantities=T, 
+     main = "Hits at q<0.05 between methods (New data)") #41-5-1; 5/47; 0.106
+plot(euler(adversity.venn.data.method), quantities=F, labels=F,
+     main = "Hits at q<0.05 between methods (New data)")
+rm(adversity.venn.data.method, adversity.venn.data.cov)
+
+rm(adversity.venn.data.method, adversity.venn.data.cov)
+
+
+#bargraphs - Figure 3F, 4B
+adversity.slcma.sig$Adversity <- factor(adversity.slcma.sig$Adversity, 
+                                        levels = c("abuse","Fscore","r_faminstability",
+                                                   "mompsych","nbhqual","oneadult","parcruelty"))
+
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Method=='covTest',], aes(x = Timing, fill = Adversity))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Data)+
+  scale_fill_viridis(option='plasma', discrete=T, end =0.9,
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"))+
+  ylab("Hits at q<0.05")+
+  scale_x_discrete(labels = c("Very early","Early","Middle", 'Accumulation', 'Recency'))+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+  
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Analysis %in% c(2,6),], aes(x = Timing, fill = Adversity))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Covars)+
+  scale_fill_viridis(option='plasma', discrete=T, end =0.9,
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty")
+  )+
+  ylab("Hits at q<0.05")+
+  scale_x_discrete(labels = c("Very early","Early","Middle", 'Accumulation', 'Recency'))+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12))
+
+#Alluvial plots - Figure 3G, 4C
+adversity.alluvial.covtest <- age7.all.results[which(age7.all.results$unique_adversity %in% 
+                                                       adversity.slcma.sig$unique_adversity[
+                                                         adversity.slcma.sig$Method =='covTest']),]
+adversity.alluvial.covtest$overlap <- "No"
+
+ggplot(adversity.alluvial.covtest[which(adversity.alluvial.covtest$Method=="covTest"),],
+       aes(x = Data, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("Very early","Early","Middle",
+                                            "Accumulation","Recency"))+
+  xlab("Data version")+
+  ylab("Hits at q<0.05 in either data version")
+
+
+#alluvials for new data
+adversity.alluvial.method <- age7.all.results[which(age7.all.results$unique_adversity %in% 
+                                                       adversity.slcma.sig$unique_adversity[
+                                                         adversity.slcma.sig$Analysis %in% c(2,6)]),]
+
+dim(adversity.alluvial.method[which(adversity.alluvial.method$Data=="New"),])/2
+
+ggplot(adversity.alluvial.method[which(adversity.alluvial.method$Analysis %in% c(2,6)),],
+       aes(x = Covars, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("Very early","Early","Middle",
+                                            "Accumulation","Recency"))+
+  xlab("Analytic version")+
+  ylab("Hits at q<0.05 in either analytic version")
+
+rm(adversity.alluvial.covtest, adversity.alluvial.method)
+
+## DELTA BETAS
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/ARIES_noTwin_20180730.Rdata")
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+twins <- rownames(tbetas.winsor)[-(which(age(tbetas.winsor) %in% df$ID))]
+rm(df)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+dim(beast)
+colnames(beast)[grep("DNAm", colnames(beast))]
+
+beast <- beast[-which(paste0(beast$cidB1471, beast$qlet) %in% twins),]
+beast.DNAm.old <- beast[(which(beast$DNAm_7y=="available")),]
+beast.DNAm.old$ID <- paste0(beast.DNAm.old$cidB1471, beast.DNAm.old$qlet)
+beast.DNAm.new <- beast[(which(beast$DNAm2020_F7=="yes")),]
+beast.DNAm.new$ID <- paste0(beast.DNAm.new$cidB1471, beast.DNAm.new$qlet)
+
+length(which(beast.DNAm.old$ID %in% beast.DNAm.new$ID))
+beast.DNAm.old <- beast.DNAm.old[which(beast.DNAm.old$ID %in% beast.DNAm.new$ID),]
+beast.DNAm.new <- beast.DNAm.new[which(beast.DNAm.new$ID %in% beast.DNAm.old$ID),]
+dim(beast.DNAm.new)
+dim(beast.DNAm.old)
+rm(beast)
+
+#loading DNAm data
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+dim(tbetas.winsor)
+tbetas.winsor <- tbetas.winsor[match(beast.DNAm.old$ID, rownames(tbetas.winsor)),]
+dim(tbetas.winsor)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_F7_WIN_20200128.Rdata", verbose=T)
+f7.sample <- read.table("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_F7_20200121.txt", header=T)
+head(f7.sample)
+identical(as.character(f7.sample$Sample_Name), rownames(betas.f7.win)) #true
+rownames(betas.f7.win) <- paste0(f7.sample$ALN, f7.sample$QLET)
+rm(f7.sample)
+
+betas.f7.win <- betas.f7.win[match(beast.DNAm.new$ID, rownames(betas.f7.win)),]
+dim(betas.f7.win)
+rm(beast)
+
+adversity.slcma.sig.covTest <- adversity.slcma.sig[which(adversity.slcma.sig$Method=="covTest"),]
+dim(adversity.slcma.sig.covTest)
+
+age7.sig.db <- do.call(rbind, lapply(1:nrow(adversity.slcma.sig.covTest), function(i){
+  if(i %% 50 ==0){print(i)}
+  model <- adversity.slcma.sig.covTest$Model[i]
+  cpg <- as.character(adversity.slcma.sig.covTest$CpG[i])
+  adversity <- adversity.slcma.sig.covTest$Adversity[i]
+  adv.name <- paste(adversity, model, sep = "_")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(adversity.slcma.sig.covTest[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+head(age7.sig.db)
+
+multi.hits <- age7.sig.db$unique[which(duplicated(age7.sig.db$unique))]
+
+age7.sig.db$multi <- "Unique"
+age7.sig.db$multi[which(age7.sig.db$unique %in% multi.hits)] <- "Overlapping"
+summary(factor(age7.sig.db$multi))
+
+## scatterplot of delta betas - fig 3H
+age7.sig.db$concordance <- "Non-concordant"
+age7.sig.db$concordance[age7.sig.db$new.delta<0 & age7.sig.db$old.delta<0] <- "Concordant"
+age7.sig.db$concordance[age7.sig.db$new.delta>0 & age7.sig.db$old.delta>0] <- "Concordant"
+summary(as.factor(age7.sig.db$concordance))
+
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta<0 & age7.sig.db$old.delta<0)])))
+#47 down concordant
+length(na.omit(unique(age7.sig.db$CpG[(age7.sig.db$new.delta>0 & age7.sig.db$old.delta>0)]))) 
+#27 up concordant
+sum(na.omit(age7.sig.db$new.delta>0 & age7.sig.db$old.delta<0)) #4 non-concordant
+sum(na.omit(age7.sig.db$new.delta<0 & age7.sig.db$old.delta>0)) #2 non-concordant
+head(age7.sig.db)
+
+
+ggplot(age7.sig.db, aes(y = new.delta, x= old.delta))+
+  #geom_smooth(method = 'lm', se = F)+
+  geom_abline(linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  geom_point(aes(col = multi), size=1.5)+
+  geom_point(data=age7.sig.db[which(age7.sig.db$multi == "Overlapping"),],
+             size=1.5, col = 'red')+
+  #geom_point(, col = "red", size=1)+
+  scale_color_manual(values = c("red","black"), "")+
+  scale_shape_discrete("Analysis")+
+  xlim(-0.15, 0.15)+
+  ylim(-0.15, 0.15)+
+  #facet_wrap(~multi.dat)+
+  xlab("DNA methylation change (exposed-unexposed)\nOld data")+
+  ylab("New data\nDNA methylation change (exposed-unexposed)")+
+  geom_text(inherit.aes = F, aes(x= -0.08, y = 0.15, label = "Non-concordant (4)"), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= 0.08, y = -0.15, label = "Non-concordant (2)" ), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= -0.08, y = -0.15, label = "Concordant down (47)"), size = 4.5)+
+  geom_text(inherit.aes = F, aes(x= 0.08, y = 0.15, label = "Concordant up (27)"), size = 4.5)+
+  theme(axis.text = element_text(size = 12), 
+        axis.title = element_text(size=14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12))
+
+cor(age7.sig.db$old.delta, age7.sig.db$new.delta, use = "complete.obs") #r=0.915
+summary(lm(old.delta ~new.delta, data = age7.sig.db)) #p<2.2e-16; r2 = 0.836
+
+
+
+```
+
+*Smoking results*
+```{r}
+smoking.slcma$Timing <- factor(smoking.slcma$Timing, 
+                                   levels = c("first","second","third","accumulation", "recency"))
+head(smoking.slcma)
+
+smoking.slcma.sig <- smoking.slcma[which(smoking.slcma$FDR<=0.05),]
+summary(smoking.slcma.sig$Analysis)
+sum(smoking.slcma.sig$Analysis==1) #24 
+sum(smoking.slcma.sig$Analysis==2) #4576
+sum(smoking.slcma.sig$Analysis==6) #13
+
+#venn diagrams - Figure 3E, 4A
+smoking.venn.data.cov <- list(Old = smoking.slcma.sig$CpG[smoking.slcma.sig$Data =="Old" & 
+                                                          smoking.slcma.sig$Method =="covTest"],
+                            New = smoking.slcma.sig$CpG[smoking.slcma.sig$Data =="New" & 
+                                                          smoking.slcma.sig$Method =="covTest"])
+plot(euler(smoking.venn.data.cov), quantities=T, main = "Hits at FDR<0.05 between data version (covTest)") #332-33-447 ; 33/812 ; 4.1%
+
+smoking.venn.data.method <- list(Original_covTest = smoking.slcma.sig$CpG[smoking.slcma.sig$Data =="New" & 
+                                                          smoking.slcma.sig$Covars =="Original" &
+                                                            smoking.slcma.sig$Method == "covTest"],
+                            Updated_sI = smoking.slcma.sig$CpG[smoking.slcma.sig$Data =="New" & 
+                                                          smoking.slcma.sig$Covars =="Updated" &
+                                                            smoking.slcma.sig$Method == "sI"])
+plot(euler(smoking.venn.data.method), quantities=T, 
+     main = "Hits at FDR<0.05 between methods (New data)") #449-42-4 ; 42/495; 8.5%
+plot(euler(smoking.venn.data.method), quantities=F, labels=F,
+     main = "Hits at FDR<0.05 between methods (New data)")
+rm(smoking.venn.data.method, smoking.venn.data.cov)
+
+
+#Venn diagrams - Bonferroni
+smoking.slcma.sig2 <- smoking.slcma[smoking.slcma$bonf<0.05,]
+smoking.venn.data.cov <- list(Old = smoking.slcma.sig2$CpG[smoking.slcma.sig2$Data =="Old" & 
+                                                          smoking.slcma.sig2$Method =="covTest"],
+                            New = smoking.slcma.sig2$CpG[smoking.slcma.sig2$Data =="New" & 
+                                                          smoking.slcma.sig2$Method =="covTest"])
+plot(euler(smoking.venn.data.cov), quantities=T, main = "Hits at FDR<0.05 between data version (covTest)") #6; 43
+
+
+smoking.venn.data.method <- list(Original_covTest =
+                                     smoking.slcma.sig2$CpG[smoking.slcma.sig2$Data =="New" & 
+                                                          smoking.slcma.sig2$Covars =="Original" &
+                                                            smoking.slcma.sig2$Method == "covTest"],
+                            Updated_sI = smoking.slcma.sig2$CpG[
+                              smoking.slcma.sig2$Data =="New" & 
+                                                          smoking.slcma.sig2$Covars =="Updated" &
+                                                            smoking.slcma.sig2$Method == "sI"])
+
+plot(euler(smoking.venn.data.method), quantities=T, 
+     main = "Hits at FDR<0.05 between methods (New data)") #43; 6
+plot(euler(smoking.venn.data.method), quantities=F, labels=F,
+     main = "Hits at FDR<0.05 between methods (New data)")
+
+rm(smoking.venn.data.method, smoking.venn.data.cov)
+
+
+#bargraphs 
+
+ggplot(smoking.slcma.sig[smoking.slcma.sig$Method=='covTest',], aes(x = Timing, fill = Timing))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Data, scales ="free_y")+
+  scale_fill_viridis(discrete=T,  "Timing",
+                     labels = c("First","Second","Third","Accumulation", "Recency"), drop=F)+
+  ylab("Hits at FDR<0.05")+
+  scale_x_discrete(labels = c("First","Second","Third", 'Accumulation', "Recency"), drop=F)+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+  
+ggplot(smoking.slcma.sig2[smoking.slcma.sig2$Method=='covTest',], aes(x = Timing, fill = Timing))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Data, scales ="free_y")+
+  scale_fill_viridis(discrete=T,  "Timing",
+                     labels = c("First","Second","Third","Accumulation", "Recency"), drop=F)+
+  ylab("Hits at q<0.05")+
+  scale_x_discrete(labels = c("First","Second","Third", 'Accumulation', "Recency"), drop=F)+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+  
+
+ggplot(smoking.slcma.sig[smoking.slcma.sig$Analysis %in% c(2,6),], aes(x = Timing, fill = Timing))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Covars, scales ="free_y")+
+  scale_fill_viridis(discrete=T,  "Timing",
+                     labels = c("First","Second","Third","Accumulation", "Recency"), drop=F)+
+  ylab("Hits at FDR<0.05")+
+  scale_x_discrete(labels = c("First","Second","Third", 'Accumulation', "Recency"), drop=F)+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+  
+ggplot(smoking.slcma.sig2[smoking.slcma.sig2$Analysis %in% c(2,6),], aes(x = Timing, fill = Timing))+
+  geom_bar(stat='count',position='stack', col = 'white')+
+  theme_classic()+
+  facet_wrap(~Covars, scales ="free_y")+
+  scale_fill_viridis(discrete=T,  "Timing",
+                     labels = c("First","Second","Third","Accumulation", "Recency"), drop=F)+
+  ylab("Hits at q<0.05")+
+  scale_x_discrete(labels = c("First","Second","Third", 'Accumulation', "Recency"), drop=F)+
+  theme(axis.text = element_text(size =12),
+        axis.text.x = element_text(size = 12, angle = 45, hjust=1),
+        axis.title = element_text(size =14),
+        strip.text.x = element_text(size = 14),
+        legend.text = element_text(size =12),
+        legend.title = element_text(size =12))
+
+
+#Alluvial plots
+smoking.alluvial.covtest <- smoking.slcma[which(smoking.slcma$unique_adversity %in% 
+                                                       smoking.slcma.sig$unique_adversity[
+                                                         smoking.slcma.sig$Method =='covTest']),]
+smoking.alluvial.covtest$overlap <- "No"
+
+ggplot(smoking.alluvial.covtest[which(smoking.alluvial.covtest$Method=="covTest"),],
+       aes(x = Data, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("First","Second","Third",
+                                            "Accumulation","Recency"), drop=F)+
+  xlab("Data version")+
+  ylab("Hits at FDR<0.05 in either data version")
+
+#alluvials for new data
+smoking.alluvial.method <- smoking.slcma[which(smoking.slcma$unique_adversity %in% 
+                                                       smoking.slcma.sig$unique_adversity[
+                                                         smoking.slcma.sig$Analysis %in% c(2,6)]),]
+
+ggplot(smoking.alluvial.method[which(smoking.alluvial.method$Analysis %in% c(2,6)),],
+       aes(x = Covars, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("First","Second","Third",
+                                            "Accumulation","Recency"), drop=F)+
+  xlab("Analytic version")+
+  ylab("Hits at FDR<0.05 in either analytic version")
+
+#bonferroni
+smoking.alluvial.covtest <- smoking.slcma[which(smoking.slcma$unique_adversity %in% 
+                                                       smoking.slcma.sig2$unique_adversity[
+                                                         smoking.slcma.sig2$Method =='covTest']),]
+smoking.alluvial.covtest$overlap <- "No"
+
+ggplot(smoking.alluvial.covtest[which(smoking.alluvial.covtest$Method=="covTest"),],
+       aes(x = Data, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("First","Second","Third",
+                                            "Accumulation","Recency"), drop=F)+
+  xlab("Data version")+
+  ylab("Hits at q<0.05 in either data version")
+
+#alluvials for new data
+smoking.alluvial.method <- smoking.slcma[which(smoking.slcma$unique_adversity %in% 
+                                                       smoking.slcma.sig2$unique_adversity[
+                                                         smoking.slcma.sig2$Analysis %in% c(2,6)]),]
+
+ggplot(smoking.alluvial.method[which(smoking.alluvial.method$Analysis %in% c(2,6)),],
+       aes(x = Covars, stratum = Timing, alluvium = unique_adversity, fill = Timing))+
+  geom_flow(stat='alluvium')+
+  geom_stratum()+
+  theme_classic()+
+  theme(axis.title=element_text(size =14),
+        axis.text = element_text(size=12),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =8))+
+  scale_fill_viridis(discrete=T, labels = c("First","Second","Third",
+                                            "Accumulation","Recency"), drop=F)+
+  xlab("Analytic version")+
+  ylab("Hits at q<0.05 in either analytic version")
+
+rm(smoking.alluvial.covtest, smoking.alluvial.method)
+
+```
+
+
+*delta beta smoking*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/ARIES_noTwin_20180730.Rdata")
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+twins <- rownames(tbetas.winsor)[-(which(age(tbetas.winsor) %in% df$ID))]
+rm(df)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+dim(beast)
+colnames(beast)[grep("DNAm", colnames(beast))]
+
+beast <- beast[-which(paste0(beast$cidB1471, beast$qlet) %in% twins),]
+beast.DNAm.old <- beast[(which(beast$DNAm_7y=="available")),]
+beast.DNAm.old$ID <- paste0(beast.DNAm.old$cidB1471, beast.DNAm.old$qlet)
+beast.DNAm.new <- beast[(which(beast$DNAm2020_F7=="yes")),]
+beast.DNAm.new$ID <- paste0(beast.DNAm.new$cidB1471, beast.DNAm.new$qlet)
+
+length(which(beast.DNAm.old$ID %in% beast.DNAm.new$ID))
+beast.DNAm.old <- beast.DNAm.old[which(beast.DNAm.old$ID %in% beast.DNAm.new$ID),]
+beast.DNAm.new <- beast.DNAm.new[which(beast.DNAm.new$ID %in% beast.DNAm.old$ID),]
+dim(beast.DNAm.new)
+dim(beast.DNAm.old)
+rm(beast)
+
+#loading DNAm data
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+dim(tbetas.winsor)
+tbetas.winsor <- tbetas.winsor[match(beast.DNAm.old$ID, rownames(tbetas.winsor)),]
+dim(tbetas.winsor)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_F7_WIN_20200128.Rdata", verbose=T)
+f7.sample <- read.table("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_F7_20200121.txt", header=T)
+head(f7.sample)
+identical(as.character(f7.sample$Sample_Name), rownames(betas.f7.win)) #true
+rownames(betas.f7.win) <- paste0(f7.sample$ALN, f7.sample$QLET)
+rm(f7.sample)
+
+betas.f7.win <- betas.f7.win[match(beast.DNAm.new$ID, rownames(betas.f7.win)),]
+dim(betas.f7.win)
+rm(beast)
+
+colnames(beast.DNAm.new)[grep("smoke",colnames(beast.DNAm.new))]
+
+smoking.slcma.sig.covtest <- smoking.slcma.sig[smoking.slcma.sig$Method == "covTest",]
+dim(smoking.slcma.sig.covtest)
+
+smoking.sig.db <- do.call(rbind, lapply(1:nrow(smoking.slcma.sig.covtest), function(i){
+  if(i %% 100 ==0){print(i)}
+  model <- smoking.slcma.sig.covtest$Model[i]
+  cpg <- as.character(smoking.slcma.sig.covtest$CpG[i])
+  adversity <- smoking.slcma.sig.covtest$Adversity[i]
+  adv.name <- paste("smoke", model, "trim", sep = ".")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(smoking.slcma.sig.covtest[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+head(smoking.sig.db)
+
+multi.hits <- smoking.sig.db$CpG[which(duplicated(smoking.sig.db$CpG))]
+
+smoking.sig.db$multi <- "Unique"
+smoking.sig.db$multi[which(smoking.sig.db$CpG %in% multi.hits)] <- "Overlapping"
+summary(factor(smoking.sig.db$multi))
+
+## scatterplot of delta betas
+smoking.sig.db$concordance <- "Non-concordant"
+smoking.sig.db$concordance[smoking.sig.db$new.delta<0 & smoking.sig.db$old.delta<0] <- "Concordant"
+smoking.sig.db$concordance[smoking.sig.db$new.delta>0 & smoking.sig.db$old.delta>0] <- "Concordant"
+summary(as.factor(smoking.sig.db$concordance))
+length(na.omit(unique(smoking.sig.db$CpG[(smoking.sig.db$new.delta<0 & smoking.sig.db$old.delta<0)])))
+#1581 down
+length(na.omit(unique(smoking.sig.db$CpG[(smoking.sig.db$new.delta>0 & smoking.sig.db$old.delta>0)]))) 
+#1957 up
+length(na.omit(unique(smoking.sig.db$CpG[(smoking.sig.db$new.delta>0 & smoking.sig.db$old.delta<0)]))) 
+#609
+length(na.omit(unique(smoking.sig.db$CpG[(smoking.sig.db$new.delta<0 & smoking.sig.db$old.delta>0)]))) 
+#249
+head(smoking.sig.db)
+
+ggplot(smoking.sig.db, aes(y = new.delta, x= old.delta))+
+  #geom_smooth(method = 'lm', se = F)+
+  geom_abline(linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  geom_point(aes(col = concordance), size=1.5)+
+  geom_point(data=smoking.sig.db[which(smoking.sig.db$multi == "Overlapping"),],
+             size=1.5, col = 'red')+
+  #geom_point(, col = "red", size=1)+
+  scale_color_manual(values = c("black","grey"), "")+
+  scale_shape_discrete("Analysis")+
+  xlim(-0.1, 0.1)+
+  ylim(-0.1, 0.1)+
+  #facet_wrap(~multi.dat)+
+  xlab("DNA methylation change (exposed-unexposed)\nOld data")+
+  ylab("New data\nDNA methylation change (exposed-unexposed)")+
+  geom_text(inherit.aes = F, aes(x= -0.05, y = 0.1, label = "Non-concordant (609)"), size = 5)+
+  geom_text(inherit.aes = F, aes(x= 0.05, y = -0.1, label = "Non-concordant (249)" ), size = 5)+
+  geom_text(inherit.aes = F, aes(x= -0.05, y = -0.1, label = "Concordant down (1581)"), size = 5)+
+  geom_text(inherit.aes = F, aes(x= 0.05, y = 0.1, label = "Concordant up (1957)"), size = 5)+
+  theme(axis.text = element_text(size = 12), 
+        axis.title = element_text(size=14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12))
+
+cor(smoking.sig.db$old.delta, smoking.sig.db$new.delta, use = "complete.obs") #r=0.788
+
+#bonferroni
+smoking.sig.db.bonf <- smoking.sig.db[smoking.sig.db$bonf <0.05, ]
+dim(smoking.sig.db.bonf) #49
+smoking.sig.db.bonf$multi <-"Unique"
+smoking.sig.db.bonf$multi[duplicated(smoking.sig.db.bonf$CpG)] <- "Overlapping"
+length(na.omit(unique(smoking.sig.db.bonf$CpG[(smoking.sig.db.bonf$new.delta<0 &
+                                                 smoking.sig.db.bonf$old.delta<0)])))
+#13 down
+length(na.omit(unique(smoking.sig.db.bonf$CpG[(smoking.sig.db.bonf$new.delta>0 &
+                                                 smoking.sig.db.bonf$old.delta>0)]))) 
+#20 up
+length(na.omit(unique(smoking.sig.db.bonf$CpG[(smoking.sig.db.bonf$new.delta>0 &
+                                            smoking.sig.db.bonf$old.delta<0)]))) 
+#5
+length(na.omit(unique(smoking.sig.db.bonf$CpG[(smoking.sig.db.bonf$new.delta<0 & 
+                                            smoking.sig.db.bonf$old.delta>0)]))) 
+#2
+
+ggplot(smoking.sig.db.bonf, aes(y = new.delta, x= old.delta))+
+  #geom_smooth(method = 'lm', se = F)+
+  geom_abline(linetype = 2)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  geom_point(aes(col = concordance), size=1.5)+
+  scale_color_manual(values = c("black","grey"), "")+
+  scale_shape_discrete("Analysis")+
+  xlim(-0.1, 0.1)+
+  ylim(-0.1, 0.1)+
+  #facet_wrap(~multi.dat)+
+  xlab("DNA methylation change (exposed-unexposed)\nOld data")+
+  ylab("New data\nDNA methylation change (exposed-unexposed)")+
+  geom_text(inherit.aes = F, aes(x= -0.05, y = 0.1, label = "Non-concordant (5)"), size = 5)+
+  geom_text(inherit.aes = F, aes(x= 0.05, y = -0.1, label = "Non-concordant (2)" ), size = 5)+
+  geom_text(inherit.aes = F, aes(x= -0.05, y = -0.1, label = "Concordant down (13)"), size = 5)+
+  geom_text(inherit.aes = F, aes(x= 0.05, y = 0.1, label = "Concordant up (20)"), size = 5)+
+  theme(axis.text = element_text(size = 12), 
+        axis.title = element_text(size=14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12))
+
+cor(smoking.sig.db.bonf$old.delta, smoking.sig.db.bonf$new.delta, use = "complete.obs") #r=0.856
+
+
+rm(multi.hits, age7.sig.db, tbetas.winsor, betas.f7.win)
+```
+
+*Genomic region*
+```{r}
+#annotation
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Aim 3/featureData.Rdata", verbose=T)
+ewas.sig <- ewas.results[ewas.results$adj.P.Val<0.05,]
+ewas.sig$region <- featureData$UCSC_REFGENE_GROUP[match(ewas.sig$cpg, featureData$TargetID)]
+ewas.sig$region <- strsplit2(ewas.sig$region, ";")[,1]
+ggplot(ewas.sig, aes(x = region, fill=data))+
+  geom_bar(stat='count', position = 'dodge')+
+  theme_classic()+
+  facet_wrap(~adversity)+
+  scale_x_discrete(drop=F)+
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+adversity.slcma.sig$region <- featureData$UCSC_REFGENE_GROUP[match(adversity.slcma.sig$CpG, featureData$TargetID)]
+adversity.slcma.sig$cgi <- featureData$RELATION_TO_UCSC_CPG_ISLAND[match(adversity.slcma.sig$CpG, featureData$TargetID)]
+adversity.slcma.sig$region <- strsplit2(adversity.slcma.sig$region, ";")[,1]
+
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Method=="covTest",], aes(x = region, fill=Data))+
+  geom_bar(stat='count', position = 'dodge')+
+  theme_classic()+
+  scale_x_discrete(drop=F)
+
+ggplot(adversity.slcma.sig[adversity.slcma.sig$Covars=="Original",], aes(x = cgi, fill=Data))+
+  geom_bar(stat='count', position = 'dodge')+
+  theme_classic()+
+  scale_x_discrete(drop=F)
+```

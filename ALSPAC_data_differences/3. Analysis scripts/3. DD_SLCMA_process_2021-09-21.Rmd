@@ -1,0 +1,407 @@
+---
+title: "Processing SLCMA results"
+output: html_document
+---
+This script reads in the SLCMA results for the four different analyses of 7 adversities and smoking exposure, combining them into usable formats for downstream analyses. The two resulting files are: 
+- age7.all.results: large dataframe for 7 adversities x 4 analyses
+- smoking.slcma: large dataframe for smoking x 4 analyses
+
+Required files:
+- ewas.results: obtained from running DD_EWAS_2021.Rmd
+
+*Libraries and path*
+```{r}
+library(dplyr)
+library(limma)
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/")
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/ewas_results_overlap_only_2021-08-21.Rdata", verbose=T)
+
+cpgs.overlap <- unique(ewas.results$cpg)
+length(cpgs.overlap)
+rm(ewas.results)
+```
+
+*Analysis 1 - overlapping samples only (no twins)*
+```{r}
+path ="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/"
+
+for(i in c("abuse","Fscore","mompsy","nbhqual","oneadult","parc", "r_faminst")){
+  if(i=='abuse'){analysis.1 <- data.frame()}
+  print(i)
+  
+  file <- list.files(path)[grep(i, list.files(path))]
+  if(i == "mompsy"){i = "mompsych"}
+  if(i == "parc"){i = "parcruelty"}
+  if(i == "r_faminst"){i ="r_faminstability"}
+  if(i == "Fscore"){
+    file ="SLCMA_Fscore_fixed/01-oldDNAm-origCovars-covTest-Fscore_fixed_20210821.Rdata"
+    }
+  
+  load(paste(path, file, sep=""))
+  head(res)
+  res <- res[,c("probe","Variable_Name","Improvement_R2","P-value")]
+  res <- as.data.frame(lapply(res, unlist))
+  colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+  res$Variable_Name <- gsub("fixed_","",res$Variable_Name)
+  res <- res[which(res$CpG %in% cpgs.overlap),]
+  res$FDR <- p.adjust(res$P.value, method = "BH")
+  res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+  res$Model <- gsub("D", "", gsub(paste(i,"_", sep =""), "", res$Variable_Name))
+  models <- unique(res$Model)
+  models.2 <- models[-which(models %in% c("accumulation","ever","recency"))]
+  months <- models.2[grep("m", models.2)][order(as.numeric(gsub("m", "", 
+                                                                models.2[grep("m", models.2)]  )))]
+  years <- models.2[grep("y", models.2)][order(as.numeric(gsub("y", "", 
+                                                               models.2[grep("y", models.2)]  )))]
+  models.cor <- c(months, years, models[-which(models %in% models.2)])
+  res$Model <- factor(res$Model, levels = models.cor)
+  
+  res$Timing <- as.numeric(gsub("y", "", gsub("m","", res$Model)))
+  res$Timing[which(res$Model %in% c("accumulation", "ever","recency"))]<-0
+  res$Timing[grep("y", res$Model)] <- res$Timing[grep("y", res$Model)]*12
+  res$Timing <- as.numeric(res$Timing)
+  res$Timing[which(res$Timing <=36)]<-"very_early"
+  res$Timing[which(res$Timing >36 & res$Timing<=61)]<-"early"
+  res$Timing[which(res$Timing >61 & res$Timing <=84)]<-"middle"
+  res$Timing[which(res$Timing %in% c(96, 108, 120,132))]<-"late"
+  res$Timing[which(res$Model =="accumulation")]<-"accumulation"
+  #res$Timing[which(res$Model =="ever")]<-"ever"
+  res$Timing[which(res$Model =="recency")]<-"recency"
+  res$Timing <- factor(res$Timing, levels = c("very_early","early","middle",
+                                                          "accumulation","recency"))
+  res$Adversity <- i
+  analysis.1 <- rbind(analysis.1, res)
+  rm(res, file, i, months, models, models.cor, models.2, years)
+}
+
+analysis.1$Method <- "covTest"
+analysis.1$Covars <- "Original"
+analysis.1$Analysis <- "1"
+analysis.1$Data <- "Old"
+analysis.1$Data <- factor(analysis.1$Data, levels = c("Old","New"))
+analysis.1$unique <- paste(analysis.1$CpG, analysis.1$Adversity, analysis.1$Timing, sep="_")
+analysis.1$unique_adversity <- paste(analysis.1$CpG, analysis.1$Adversity, sep="_")
+analysis.1$unique_timing <- paste(analysis.1$CpG, analysis.1$Timing, sep="_")
+head(analysis.1)
+dim(analysis.1)
+
+rm(path)
+
+```
+
+*Analysis 2*
+```{r}
+path ="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/data/SLCMA-results/02-newDNAm-origCovars-covTest/"
+
+for(i in c("abuse","Fscore","mompsy","nbhqual","oneadult","parc", "r_faminst")){
+  if(i=='abuse'){analysis.2 <- data.frame()}
+  print(i)
+  
+  file <- list.files(path)[grep(i, list.files(path))]
+  if(i == "mompsy"){i = "mompsych"}
+  if(i == "parc"){i = "parcruelty"}
+  if(i == "r_faminst"){i ="r_faminstability"}
+  if(i == "Fscore"){
+    load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA_Fscore_fixed/02-newDNAm-origCovars-covTest-Fscore_fixed_20210821.Rdata")
+    }
+    else{
+    load(paste(path, file, sep=""))}
+  
+  res <- res[,c("probe","Variable_Name","Improvement_R2","P-value")]
+  res <- as.data.frame(lapply(res, unlist))
+  colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+  res$Variable_Name <- gsub("fixed_","",res$Variable_Name)
+  res <- res[which(res$CpG %in% cpgs.overlap),]
+  res$FDR <- p.adjust(res$P.value, method = "BH")
+  res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+  res$Model <- gsub("D", "", gsub(paste(i,"_", sep =""), "", res$Variable_Name))
+  models <- unique(res$Model)
+  models.2 <- models[-which(models %in% c("accumulation","ever","recency"))]
+  months <- models.2[grep("m", models.2)][order(as.numeric(gsub("m", "", 
+                                                                models.2[grep("m", models.2)]  )))]
+  years <- models.2[grep("y", models.2)][order(as.numeric(gsub("y", "", 
+                                                               models.2[grep("y", models.2)]  )))]
+  models.cor <- c(months, years, models[-which(models %in% models.2)])
+  res$Model <- factor(res$Model, levels = models.cor)
+  
+  res$Timing <- as.numeric(gsub("y", "", gsub("m","", res$Model)))
+  res$Timing[which(res$Model %in% c("accumulation", "ever","recency"))]<-0
+  res$Timing[grep("y", res$Model)] <- res$Timing[grep("y", res$Model)]*12
+  res$Timing <- as.numeric(res$Timing)
+  res$Timing[which(res$Timing <=36)]<-"very_early"
+  res$Timing[which(res$Timing >36 & res$Timing<=61)]<-"early"
+  res$Timing[which(res$Timing >61 & res$Timing <=84)]<-"middle"
+  res$Timing[which(res$Timing %in% c(96, 108, 120,132))]<-"late"
+  res$Timing[which(res$Model =="accumulation")]<-"accumulation"
+  #res$Timing[which(res$Model =="ever")]<-"ever"
+  res$Timing[which(res$Model =="recency")]<-"recency"
+  res$Timing <- factor(res$Timing, levels = c("very_early","early","middle",
+                                                          "accumulation","recency"))
+  res$Adversity <- i
+  analysis.2 <- rbind(analysis.2, res)
+  rm(res, file, i, months, models, models.cor, models.2, years)
+}
+
+analysis.2$Method <- "covTest"
+analysis.2$Covars <- "Original"
+analysis.2$Analysis <- "2"
+analysis.2$Data <- "New"
+analysis.2$Data <- factor(analysis.2$Data, levels = c("Old","New"))
+analysis.2$unique <- paste(analysis.2$CpG, analysis.2$Adversity, analysis.2$Timing, sep="_")
+analysis.2$unique_adversity <- paste(analysis.2$CpG, analysis.2$Adversity, sep="_")
+analysis.2$unique_timing <- paste(analysis.2$CpG, analysis.2$Timing, sep="_")
+head(analysis.2)
+dim(analysis.2)
+
+rm(path)
+```
+
+*Analysis 4*
+```{r}
+path ="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/data/SLCMA-results/04-newDNAm-origCovars-sI/"
+
+for(i in c("abuse","Fscore","mompsy","nbhqual","oneadult","parc", "r_faminst")){
+  if(i=='abuse'){analysis.4 <- data.frame()}
+  print(i)
+  
+  file <- list.files(path)[grep(i, list.files(path))]
+  if(i == "mompsy"){i = "mompsych"}
+  if(i == "parc"){i = "parcruelty"}
+  if(i == "r_faminst"){i ="r_faminstability"}
+  if(i == "Fscore"){
+    load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA_Fscore_fixed/04-newDNAm-origCovars-sI-Fscore_fixed_20210821.Rdata")
+    }
+    else{
+    load(paste(path, file, sep=""))
+      }
+  
+  res <- res[,c("probe","Variable_Name","R2","P-value")]
+  res <- as.data.frame(lapply(res, unlist))
+  colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+  res$Variable_Name <- gsub("fixed_","",res$Variable_Name)
+  res <- res[which(res$CpG %in% cpgs.overlap),]
+  res$FDR <- p.adjust(res$P.value, method = "BH")
+  res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+  res$Model <- gsub("D", "", gsub(paste(i,"_", sep =""), "", res$Variable_Name))
+  models <- unique(res$Model)
+  models.2 <- models[-which(models %in% c("accumulation","ever","recency"))]
+  months <- models.2[grep("m", models.2)][order(as.numeric(gsub("m", "", 
+                                                                models.2[grep("m", models.2)]  )))]
+  years <- models.2[grep("y", models.2)][order(as.numeric(gsub("y", "", 
+                                                               models.2[grep("y", models.2)]  )))]
+  models.cor <- c(months, years, models[-which(models %in% models.2)])
+  res$Model <- factor(res$Model, levels = models.cor)
+  
+  res$Timing <- as.numeric(gsub("y", "", gsub("m","", res$Model)))
+  res$Timing[which(res$Model %in% c("accumulation", "ever","recency"))]<-0
+  res$Timing[grep("y", res$Model)] <- res$Timing[grep("y", res$Model)]*12
+  res$Timing <- as.numeric(res$Timing)
+  res$Timing[which(res$Timing <=36)]<-"very_early"
+  res$Timing[which(res$Timing >36 & res$Timing<=61)]<-"early"
+  res$Timing[which(res$Timing >61 & res$Timing <=84)]<-"middle"
+  res$Timing[which(res$Timing %in% c(96, 108, 120,132))]<-"late"
+  res$Timing[which(res$Model =="accumulation")]<-"accumulation"
+  #res$Timing[which(res$Model =="ever")]<-"ever"
+  res$Timing[which(res$Model =="recency")]<-"recency"
+  res$Timing <- factor(res$Timing, levels = c("very_early","early","middle",
+                                                          "accumulation","recency"))
+  res$Adversity <- i
+  analysis.4 <- rbind(analysis.4, res)
+  rm(res, file, i, months, models, models.cor, models.2, years)
+}
+analysis.4$Method <- "sI"
+analysis.4$Covars <- "Original"
+analysis.4$Analysis <- "4"
+analysis.4$Data <- "New"
+analysis.4$Data <- factor(analysis.4$Data, levels = c("Old","New"))
+analysis.4$unique <- paste(analysis.4$CpG, analysis.4$Adversity, analysis.4$Timing, sep="_")
+analysis.4$unique_adversity <- paste(analysis.4$CpG, analysis.4$Adversity, sep="_")
+analysis.4$unique_timing <- paste(analysis.4$CpG, analysis.4$Timing, sep="_")
+head(analysis.4)
+dim(analysis.4)
+
+rm(path)
+```
+
+*Analysis 6*
+```{r}
+path ="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/data/SLCMA-results/06-newDNAm-educFWL-sI/"
+
+for(i in c("abuse","Fscore","mompsy","nbhqual","oneadult","parc", "r_faminst")){
+  if(i=='abuse'){analysis.6 <- data.frame()}
+  print(i)
+  
+  file <- list.files(path)[grep(i, list.files(path))]
+  if(i == "mompsy"){i = "mompsych"}
+  if(i == "parc"){i = "parcruelty"}
+  if(i == "r_faminst"){i ="r_faminstability"}
+  if(i == "Fscore"){
+    load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA_Fscore_fixed/06-newDNAm-educFWL-sI-Fscore_fixed_20210821.Rdata")
+    }
+    else{
+    load(paste(path, file, sep=""))
+      }
+  
+  res <- res[,c("probe","Variable_Name","R2","P-value")]
+  res <- as.data.frame(lapply(res, unlist))
+  colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+  res$Variable_Name <- gsub("fixed_","",res$Variable_Name)
+  res <- res[which(res$CpG %in% cpgs.overlap),]
+  res$FDR <- p.adjust(res$P.value, method = "BH")
+  res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+  res$Model <- gsub("D", "", gsub(paste(i,"_", sep =""), "", res$Variable_Name))
+  models <- unique(res$Model)
+  models.2 <- models[-which(models %in% c("accumulation","ever","recency"))]
+  months <- models.2[grep("m", models.2)][order(as.numeric(gsub("m", "", 
+                                                                models.2[grep("m", models.2)]  )))]
+  years <- models.2[grep("y", models.2)][order(as.numeric(gsub("y", "", 
+                                                               models.2[grep("y", models.2)]  )))]
+  models.cor <- c(months, years, models[-which(models %in% models.2)])
+  res$Model <- factor(res$Model, levels = models.cor)
+  
+  res$Timing <- as.numeric(gsub("y", "", gsub("m","", res$Model)))
+  res$Timing[which(res$Model %in% c("accumulation", "ever","recency"))]<-0
+  res$Timing[grep("y", res$Model)] <- res$Timing[grep("y", res$Model)]*12
+  res$Timing <- as.numeric(res$Timing)
+  res$Timing[which(res$Timing <=36)]<-"very_early"
+  res$Timing[which(res$Timing >36 & res$Timing<=61)]<-"early"
+  res$Timing[which(res$Timing >61 & res$Timing <=84)]<-"middle"
+  res$Timing[which(res$Timing %in% c(96, 108, 120,132))]<-"late"
+  res$Timing[which(res$Model =="accumulation")]<-"accumulation"
+  #res$Timing[which(res$Model =="ever")]<-"ever"
+  res$Timing[which(res$Model =="recency")]<-"recency"
+  res$Timing <- factor(res$Timing, levels = c("very_early","early","middle",
+                                                          "accumulation","recency"))
+  res$Adversity <- i
+  analysis.6 <- rbind(analysis.6, res)
+  rm(res, file, i, months, models, models.cor, models.2, years)
+}
+
+analysis.6$Method <- "sI"
+analysis.6$Covars <- "Updated"
+analysis.6$Analysis <- "6"
+analysis.6$Data <- "New"
+analysis.6$Data <- factor(analysis.6$Data, levels = c("Old","New"))
+analysis.6$unique <- paste(analysis.6$CpG, analysis.6$Adversity, analysis.6$Timing, sep="_")
+analysis.6$unique_adversity <- paste(analysis.6$CpG, analysis.6$Adversity, sep="_")
+analysis.6$unique_timing <- paste(analysis.6$CpG, analysis.6$Timing, sep="_")
+head(analysis.6)
+dim(analysis.6)
+
+rm(path)
+```
+
+*Combining adversity results*
+```{r}
+age7.all.results <- rbind(analysis.1,
+                          analysis.2,
+                          analysis.4,
+                          analysis.6)
+dim(age7.all.results)/4/7
+head(age7.all.results)
+save(age7.all.results, file="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/age7.all.results.2021-09-21.Rdata")
+
+levels(factor(age7.all.results$Timing))
+
+rm(analysis.1, analysis.2, analysis.4, analysis.6, age7.all.results)
+```
+
+*Loading smoking SLCMA results*
+```{r}
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA-oldDNAm-rerun-covTest-smoking_20200825.rdata", verbose=T)
+head(res)
+res <- res[,c("probe","Variable_Name","Improvement_R2","P-value")]
+res <- as.data.frame(lapply(res, unlist))
+colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+res <- res[which(res$CpG %in% cpgs.overlap),]
+res$FDR <- p.adjust(res$P.value, method = "BH")
+res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+res$Model <- gsub("smoke.trim.", "", res$Variable_Name)
+res$Model <- factor(res$Model, levels = c("first","second","third","accumulation","recency"))
+res$Timing <- res$Model
+res$Adversity <- "Smoking"
+res$Method <- "CovTest"
+res$Covars <- "Original"
+res$Analysis <- 1
+res$Data <- "Old"
+res$unique <- paste(res$CpG, res$Adversity, res$Timing, sep ="_")
+res$unique_adversity <- paste(res$CpG, res$Adversity, sep ="_")
+res$unique_timing <- paste(res$CpG, res$Timing, sep ="_")
+smoking.slcma <- res
+rm(res)
+
+#new data, old analysis
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA-newDNAm-rerun-covTest-smoking_20200825.rdata", verbose=T)
+dim(res)
+res <- res[,c("probe","Variable_Name","Improvement_R2","P-value")]
+res <- as.data.frame(lapply(res, unlist))
+colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+res <- res[which(res$CpG %in% cpgs.overlap),]
+res$FDR <- p.adjust(res$P.value, method = "BH")
+res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+res$Model <- gsub("smoke.trim.", "", res$Variable_Name)
+res$Model <- factor(res$Model, levels = c("first","second","third","accumulation","recency"))
+res$Timing <- res$Model
+res$Adversity <- "Smoking"
+res$Method <- "CovTest"
+res$Covars <- "Original"
+res$Analysis <- 2
+res$Data <- "New"
+res$unique <- paste(res$CpG, res$Adversity, res$Timing, sep ="_")
+res$unique_adversity <- paste(res$CpG, res$Adversity, sep ="_")
+res$unique_timing <- paste(res$CpG, res$Timing, sep ="_")
+smoking.slcma <- rbind(smoking.slcma, res)
+rm(res)
+
+#new dataset results - updated analysis, original covariates
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA-newDNAm-rerun-sI-smoking_20200825.rdata", verbose=T)
+res <- res[,c("probe","Variable_Name","R2","P-value")]
+res <- as.data.frame(lapply(res, unlist))
+colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+res <- res[which(res$CpG %in% cpgs.overlap),]
+res$FDR <- p.adjust(res$P.value, method = "BH")
+res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+res$Model <- gsub("smoke.trim.", "", res$Variable_Name)
+res$Model <- factor(res$Model, levels = c("first","second","third","accumulation","recency"))
+res$Timing <- res$Model
+res$Adversity <- "Smoking"
+res$Method <- "sI"
+res$Covars <- "Original"
+res$Analysis <- 4
+res$Data <- "New"
+res$unique <- paste(res$CpG, res$Adversity, res$Timing, sep ="_")
+res$unique_adversity <- paste(res$CpG, res$Adversity, sep ="_")
+res$unique_timing <- paste(res$CpG, res$Timing, sep ="_")
+smoking.slcma <- rbind(smoking.slcma, res)
+rm(res)
+
+#new dataset results - updated analysis
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/SLCMA-newDNAm-rerun-sI-educFWL-smoking_20200805.Rdata", verbose=T)
+res <- res[,c("probe","Variable_Name","R2","P-value")]
+res <- as.data.frame(lapply(res, unlist))
+colnames(res) <- c("CpG", "Variable_Name", "R2","P.value")
+res <- res[which(res$CpG %in% cpgs.overlap),]
+res$FDR <- p.adjust(res$P.value, method = "BH")
+res$bonf <- p.adjust(res$P.value, method = "bonferroni")
+res$Model <- gsub("smoke.trim.", "", res$Variable_Name)
+res$Model <- factor(res$Model, levels = c("first","second","third","accumulation","recency"))
+res$Timing <- res$Model
+res$Adversity <- "Smoking"
+res$Method <- "sI"
+res$Covars <- "Updated"
+res$Analysis <- 6
+res$Data <- "New"
+res$unique <- paste(res$CpG, res$Adversity, res$Timing, sep ="_")
+res$unique_adversity <- paste(res$CpG, res$Adversity, sep ="_")
+res$unique_timing <- paste(res$CpG, res$Timing, sep ="_")
+smoking.slcma <- rbind(smoking.slcma, res)
+rm(res)
+
+dim(smoking.slcma)/4
+identical(colnames(smoking.slcma), colnames(age7.all.results))#TRUE
+
+save(smoking.slcma, file="~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/smoking.slcma.results.2021-09-21.Rdata")
+
+rm(smoking.slcma)
+```

@@ -1,0 +1,1093 @@
+---
+title: "EWAS data differences"
+date: "2021-08-20"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+*Libraries*
+```{r}
+library(bacon)
+library(limma)
+library(dplyr)
+library(eulerr)
+library(ggplot2)
+library(qqplotr)
+library(reshape)
+library(viridis)
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data")
+
+```
+
+**Data preparation**
+*Loading old data*
+```{r}
+load("tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+dim(tbetas.winsor)
+tbetas.winsor <- t(tbetas.winsor)
+
+load("F7_cellcounts.Rdata", verbose=T)
+dim(cells)
+head(cells)
+
+#removing twins
+load("ARIES_noTwin_20180730.Rdata")
+head(df)
+twins <- colnames(tbetas.winsor)[-(which(colnames(tbetas.winsor) %in% df$ID))]
+tbetas.winsor <- tbetas.winsor[,-which(colnames(tbetas.winsor) %in% twins)]
+dim(tbetas.winsor)
+cells$ID <- paste(cells$cidB1471, cells$qlet, sep ="")
+cells <- cells[-which(cells$ID %in% twins),]
+cells <- cells[match(colnames(tbetas.winsor), paste(cells$cidB1471, cells$qlet, sep ="")),]
+
+```
+
+*Loading new data*
+```{r}
+load("betas_F7_WIN_20200128.Rdata", verbose=T)
+dim(betas.f7.win)
+betas.f7.win <- t(betas.f7.win)
+
+samples.f7.new <- read.table("samplesheet_F7_20200121.txt", header=T)
+dim(samples.f7.new)
+samples.f7.new$ID <- paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "")
+identical(colnames(betas.f7.win), as.character(samples.f7.new$Sample_Name)) # TRUE
+colnames(betas.f7.win) <- paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "")
+
+cells.f7.new <- read.table("celltypes_F7_20200121.txt", header=T)  
+identical(as.character(cells.f7.new$Sample_Name), as.character(samples.f7.new$Sample_Name)) #TRUE
+cells.f7.new$ID <- paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "")
+dim(cells.f7.new)
+
+#removing twins
+betas.f7.win <- betas.f7.win[,-which(colnames(betas.f7.win) %in% twins)]
+dim(betas.f7.win)
+samples.f7.new <- samples.f7.new[-which(paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "") %in% twins),]
+cells.f7.new <- cells.f7.new[-which(cells.f7.new$ID %in% twins),]
+
+
+```
+
+*Using only overlapping samples for EWAS*
+```{r}
+sum(colnames(betas.f7.win) %in% colnames(tbetas.winsor)) #946 samples
+
+tbetas.winsor <- tbetas.winsor[,colnames(tbetas.winsor) %in% colnames(betas.f7.win)]
+dim(tbetas.winsor)
+cells <- cells[match(colnames(tbetas.winsor), cells$ID),]
+
+betas.f7.win <- betas.f7.win[,colnames(betas.f7.win) %in% colnames(tbetas.winsor)]
+dim(betas.f7.win)
+samples.f7.new <- samples.f7.new[match(colnames(betas.f7.win), samples.f7.new$ID),]
+cells.f7.new <- cells.f7.new[match(colnames(betas.f7.win), cells.f7.new$ID),]
+
+```
+
+*Loading data from beast*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+beast.small <- beast[,c("cidB1471","qlet", "sustained.smoke", "Female","WHITE",
+                        "SES_parent","mom_birthage",
+                        "ed_momgest","birthweight", "ppregnum")]
+beast$SES_parent
+head(beast.small)
+beast.small$ID <- paste(beast.small$cidB1471, beast.small$qlet, sep ="")
+
+beast.small.old <- beast.small[match(colnames(tbetas.winsor), beast.small$ID),]
+rownames(beast.small.old) <- beast.small.old$ID
+
+beast.small.new <- beast.small[match(colnames(betas.f7.win), beast.small$ID),]
+dim(beast.small.new)
+rownames(beast.small.new) <- beast.small.new$ID
+rm(beast)
+```
+
+**Smoking**
+*Smoking Old data analysis*
+```{r}
+identical(cells$ID, beast.small.old$ID)
+old.model <- model.matrix(~1 + sustained.smoke +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells$CD8 + cells$CD4 + cells$CD56 + 
+                            cells$CD19 + cells$CD14 + cells$Gran, 
+                          data = beast.small.old)
+head(old.model) 
+
+betas.old <- tbetas.winsor[which(rownames(tbetas.winsor) %in% rownames(betas.f7.win)),
+                           which(colnames(tbetas.winsor) %in% rownames(old.model))]
+dim(betas.old) #450745    841
+
+for(x in seq(90149, nrow(betas.old), 90149)){
+    if(x ==  90149){results.old <- data.frame()}
+    y = x - 90148
+    cpg = y:x
+    print(paste("start = ", y, " end = ", x, sep = ""))
+  
+  fit <- lmFit(betas.old[cpg, match(rownames(old.model), colnames(betas.old))], 
+                   design = old.model)
+  fit <- eBayes(fit)
+  results <- topTable(fit, coef = 'sustained.smoke', n="Inf", adjust.method = "none")
+  
+  head(results)
+  results <- data.frame(cpg = rownames(results),
+                            results, 
+                            data="old")
+  head(results)
+  results$delta <- rowMeans(betas.old[match(results$cpg, rownames(betas.old)), 
+                                      match(rownames(old.model[old.model[,2] == 1,]), colnames(betas.old))]) -
+    rowMeans(betas.old[match(results$cpg, rownames(betas.old)), 
+                       match(rownames(old.model[old.model[,2] == 0,]), colnames(betas.old))]) 
+  
+  results.old <- rbind(results.old, results)
+  rm(fit, results)
+}
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Aim 3/featureData.Rdata", verbose=T)
+head(featureData)
+xy.probes <- rownames(featureData)[which(featureData$CHR %in% c("X","Y"))]
+length(xy.probes)
+results.old <- results.old[-which(results.old$cpg %in% xy.probes),]
+dim(results.old) #440,257 probes
+
+results.old$adj.P.Val <- p.adjust(results.old$P.Value, method = "BH")
+sum(results.old$adj.P.Val<=0.05)
+hits.old <- results.old[results.old$adj.P.Val<=0.05,]
+
+rm(betas.old)
+```
+
+*Smoking New data analysis*
+```{r}
+identical(cells.f7.new$ID, beast.small.new$ID)
+summary(factor(beast.small.new$sustained.smoke))
+
+new.model <- model.matrix(~1 + sustained.smoke +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells.f7.new$Bcell + cells.f7.new$CD4T + cells.f7.new$CD8T + 
+                            cells.f7.new$Gran + cells.f7.new$Mono + cells.f7.new$NK, 
+                          data = beast.small.new)
+dim(new.model) 
+
+betas.new <- betas.f7.win[,which(colnames(betas.f7.win) %in% rownames(new.model))]
+
+for(x in seq(90149, nrow(betas.new), 90149)){
+    if(x ==  90149){results.new <- data.frame()}
+    y = x - 90148
+    cpg = y:x
+    print(paste("start = ", y, " end = ", x, sep = ""))
+  
+  fit <- lmFit(betas.new[cpg, match(rownames(new.model), colnames(betas.new))], 
+                   design = new.model)
+  fit <- eBayes(fit)
+  results <- topTable(fit, coef = 'sustained.smoke', n="Inf", adjust.method = "none")
+  
+  head(results)
+  results <- data.frame(cpg = rownames(results),
+                            results, 
+                            data="new")
+  head(results)
+  
+  results$delta <- rowMeans(betas.new[match(results$cpg, rownames(betas.new)),
+                                            match(rownames(new.model[new.model[,2] == 1,]), colnames(betas.new))]) - 
+    rowMeans(betas.new[match(results$cpg, rownames(betas.new)), 
+                             match(rownames(new.model[new.model[,2] == 0,]), colnames(betas.new))]) 
+  
+  results.new <- rbind(results.new, results)
+  rm(fit, results)
+  }
+
+results.new[grep("cg12803068",results.new$cpg),]
+results.new <- results.new[-which(results.new$cpg %in% xy.probes),]
+dim(results.new) #440,257 probes
+
+results.new$adj.P.Val <- p.adjust(results.new$P.Value, method = "BH")
+sum(results.new$adj.P.Val<=0.05)
+hits.new <- results.new[results.new$adj.P.Val<=0.05,]
+
+rm(betas.new)
+sum(rownames(hits.old) %in% rownames(hits.new)) #20
+
+
+ewas.smoke <- list(old.data = rownames(hits.old),
+                   new.data = rownames(hits.new))
+plot(euler(ewas.smoke), quantities=T)
+
+```
+
+**Psychosocial adversities**
+*Adversity ever data frame*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+colnames(beast)[grep("Fscore_fixed", colnames(beast))]
+
+abuse.names <- colnames(beast)[grep("^abuse", colnames(beast))]
+abuse.names <- abuse.names[-grep("8y", abuse.names)]
+fscore.names <- colnames(beast)[grep("Fscore_fixed", colnames(beast))]
+r_faminst.names <- colnames(beast)[grep("r_faminst", colnames(beast))]
+parc.names <- colnames(beast)[grep("parcruelty", colnames(beast))]
+parc.names <- parc.names[-grep("9y", parc.names)]
+nbhqual.names <- colnames(beast)[grep("nbhqual", colnames(beast))]
+nbhqual.names <- nbhqual.names[grep("D", nbhqual.names)]
+oneadult.names <- colnames(beast)[grep("oneadult", colnames(beast))]
+oneadult.names <- oneadult.names[-grep("8y",oneadult.names)]
+mompsych.names <- colnames(beast)[grep("mompsych", colnames(beast))]
+
+#making data frame of evr exposed to adversity
+adversities.ever <- data.frame(ID = paste(beast$cidB1471, beast$qlet, sep =""),
+                               abuse = ifelse(rowSums(beast[,abuse.names], na.rm = T) >0, 1, 
+                                                       ifelse(rowSums(beast[,abuse.names])==0, 0, NA)),
+                               fscore = ifelse(rowSums(beast[,fscore.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,fscore.names])==0, 0, NA)),
+                               r_faminst = ifelse(rowSums(beast[,r_faminst.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,r_faminst.names])==0, 0, NA)),
+                               mompsych = ifelse(rowSums(beast[,mompsych.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,mompsych.names])==0, 0, NA)),
+                               nbhqual = ifelse(rowSums(beast[,nbhqual.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,nbhqual.names])==0, 0, NA)),
+                               oneadult = ifelse(rowSums(beast[,oneadult.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,oneadult.names])==0, 0, NA)),
+                               parcruelty = ifelse(rowSums(beast[,parc.names], na.rm = T) >0, 1, 
+                                                ifelse(rowSums(beast[,parc.names])==0, 0, NA))
+)
+
+head(adversities.ever)
+rm(beast, abuse.names, parc.names,
+   oneadult.names,mompsych.names,
+   nbhqual.names, r_faminst.names, fscore.names)
+
+summary(factor(adversities.ever$fscore))
+
+```
+
+*Adversity Old data analysis*
+```{r}
+#covariates
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+
+beast.small <- beast[,c("cidB1471","qlet", "sustained.smoke", "Female","WHITE",
+                        "SES_parent","mom_birthage",
+                        "ed_momgest","birthweight", "ppregnum")]
+rm(beast)
+dim(beast.small)
+beast.small$ID <- paste(beast.small$cidB1471, beast.small$qlet, sep ="")
+
+beast.small.old <- beast.small[match(colnames(tbetas.winsor), beast.small$ID),]
+rownames(beast.small.old) <- beast.small.old$ID
+
+betas.old <- tbetas.winsor[which(rownames(tbetas.winsor) %in% rownames(betas.f7.win)),]
+dim(betas.old)
+
+#matching covariates and adversities
+identical(cells$ID, beast.small.old$ID)
+adversities.ever.old <- adversities.ever[match(cells$ID, adversities.ever$ID),]
+identical(cells$ID, as.character(adversities.ever.old$ID))
+
+#running models
+for(i in 2:ncol(adversities.ever)){
+  if(i ==2){adversity.old <- data.frame()}
+  adversity <- adversities.ever.old[,i]
+  name <- colnames(adversities.ever.old)[i]
+  print(name)
+  model <- model.matrix(~1 + adversity +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells$CD8 + cells$CD4 + cells$CD56 + 
+                            cells$CD19 + cells$CD14 + cells$Gran, 
+                          data = beast.small.old)
+  print("Fitting model")
+  for(x in seq(90149, nrow(betas.old), 90149)){
+    if(x ==  90149){adversity.spec <- data.frame()}
+    y = x - 90148
+    cpg = y:x
+    print(paste("start = ", y, " end = ", x, sep = ""))
+  
+  fit <- lmFit(betas.old[cpg, match(rownames(model), colnames(betas.old))], 
+                   design = model)
+  fit <- eBayes(fit)
+  results <- topTable(fit, coef = 'adversity', n="Inf", adjust.method = "none")
+  
+  head(results)
+  results <- data.frame(cpg = rownames(results),
+                            results, 
+                            adversity = name,
+                            data="old")
+  head(results)
+  results$delta <- rowMeans(betas.old[match(results$cpg, rownames(betas.old)),
+                                            match(rownames(model[model[,2] == 1,]), colnames(betas.old))]) - 
+    rowMeans(betas.old[match(results$cpg, rownames(betas.old)), 
+                             match(rownames(model[model[,2] == 0,]), colnames(betas.old))]) 
+  
+  adversity.spec <- rbind(adversity.spec, results)
+  rm(fit, results)
+  }
+  adversity.spec <- adversity.spec[-which(adversity.spec$cpg %in% xy.probes),]
+  adversity.spec$adj.P.Val <- p.adjust(adversity.spec$P.Value, method = "BH")
+  
+  adversity.old <- rbind(adversity.old, adversity.spec)
+  
+  rm(adversity, name, model, adversity.spec)
+}
+
+dim(adversity.old)/7
+rm(betas.old)
+head(adversity.old)
+
+```
+
+*Adversity New data analysis*
+```{r}
+#covariates
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+beast.small <- beast[,c("cidB1471","qlet", "sustained.smoke", "Female","WHITE",
+                        "SES_parent","mom_birthage",
+                        "ed_momgest","birthweight", "ppregnum")]
+rm(beast)
+head(beast.small)
+beast.small$ID <- paste(beast.small$cidB1471, beast.small$qlet, sep ="")
+
+beast.small.new <- beast.small[match(colnames(betas.f7.win), beast.small$ID),]
+dim(beast.small.new)
+rownames(beast.small.new) <- beast.small.new$ID
+
+
+#matching covariates and adversities
+identical(cells.f7.new$ID, beast.small.new$ID)
+adversities.ever.new <- adversities.ever[match(cells.f7.new$ID, adversities.ever$ID),]
+identical(cells.f7.new$ID, as.character(adversities.ever.new$ID))
+
+#running models
+for(i in 2:ncol(adversities.ever)){
+  if(i ==2){adversity.new <- data.frame()}
+  adversity <- adversities.ever.new[,i]
+  name <- colnames(adversities.ever.new)[i]
+  print(name)
+  model <- model.matrix(~1 + adversity + Female + WHITE + mom_birthage + 
+                          ppregnum + ed_momgest + birthweight + 
+                          cells.f7.new$Bcell + cells.f7.new$CD4T + 
+                          cells.f7.new$CD8T + cells.f7.new$Gran + 
+                          cells.f7.new$Mono + cells.f7.new$NK, 
+                          data = beast.small.new)
+  
+  print("Fitting model")
+  for(x in seq(90149, nrow(betas.f7.win), 90149)){
+    if(x ==  90149){adversity.spec <- data.frame()}
+    y = x - 90148
+    cpg = y:x
+    print(paste("start = ", y, " end = ", x, sep = ""))
+    
+    fit <- lmFit(betas.f7.win[cpg, match(rownames(model), colnames(betas.f7.win))], 
+                   design = model)
+    fit <- eBayes(fit)
+    results <- topTable(fit, coef = 'adversity', n="Inf", adjust.method = "none")
+    results <- data.frame(cpg = rownames(results),
+                          results, 
+                          adversity = name,
+                          data="new")
+    results$delta <- rowMeans(betas.f7.win[match(results$cpg, rownames(betas.f7.win)),
+                                            match(rownames(model[model[,2] == 1,]), colnames(betas.f7.win))]) - 
+      rowMeans(betas.f7.win[match(results$cpg, rownames(betas.f7.win)), 
+                             match(rownames(model[model[,2] == 0,]), colnames(betas.f7.win))]) 
+    
+    adversity.spec <- rbind(adversity.spec, results)
+    rm(fit, results)
+  }
+  adversity.spec <- adversity.spec[-which(adversity.spec$cpg %in% xy.probes),]
+  
+  adversity.spec$adj.P.Val <- p.adjust(adversity.spec$P.Value, method = "BH")
+  adversity.new <- rbind(adversity.new, adversity.spec)
+  
+  rm(adversity, name, model, adversity.spec)
+}
+
+dim(adversity.new)/7
+tail(adversity.new)
+
+adversity.new[(which(adversity.new$adj.P.Val<=0.05)),]
+adversity.old[(which(adversity.old$adj.P.Val<=0.05)),]
+adversity.new[grep("cg02431672", adversity.new$cpg),]
+  
+
+```
+
+*Combining all EWAS results*
+```{r}
+head(results.new)
+results.new$adversity <- "smoking"
+results.old$adversity <- "smoking"
+colnames(results.old)
+colnames(adversity.old)
+
+ewas.results <- rbind(results.old[,c(1:7,10,8,9)], adversity.old, 
+                      results.new[,c(1:7,10,8,9)], adversity.new)
+dim(ewas.results)
+
+#adding bonferroni adjusted p-values
+ewas.results$bonf <-NA
+for(i in unique(ewas.results$adversity)){
+  print(i)
+  bonf <- p.adjust(ewas.results$P.Value[ewas.results$adversity==i & 
+                         ewas.results$data=="old"], method= "bonferroni")
+  ewas.results$bonf[ewas.results$adversity==i & 
+                         ewas.results$data=="old"] <- bonf
+  rm(bonf)
+  
+  bonf <- p.adjust(ewas.results$P.Value[ewas.results$adversity==i & 
+                         ewas.results$data=="new"], method= "bonferroni")
+  ewas.results$bonf[ewas.results$adversity==i & 
+                         ewas.results$data=="new"] <- bonf
+  rm(bonf,i)
+}
+
+#save(ewas.results, file = "/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/results/ewas_results_overlap_only_2020-00-13.Rdata")
+#save(ewas.results, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/ewas_results_overlap_only_2021-08-21.Rdata")
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Results/ewas_results_overlap_only_2021-08-21.Rdata")
+
+rm(list=setdiff(ls(), "ewas.results"))
+```
+
+**Plots**
+*QQ plots*
+```{r}
+labels <- c("Sexual/physical abuse","Financial hardship",
+            "Maternal psychopathology","Neighbordhood disadvantage",
+            "One-adult household","Caregiver abuse",
+            "Family instability","Smoking")
+names(labels) <- levels(factor(ewas.results$adversity))
+
+
+#p-value distributions
+ggplot(ewas.results, aes(x= P.Value, col = data, linetype=data))+
+  geom_density(size = 1.17)+
+  facet_wrap(. ~adversity, ncol=4,
+             labeller=labeller(adversity = labels))+
+  theme_classic()+
+  xlab("P-value distribution")+
+  ylab("Density")+
+  scale_color_manual(values = viridis(n=2, end=.7), "Data version",
+                     labels = c("Old data","New data"))+
+  scale_linetype_manual(values = c(1,3), "Data version",
+                        labels = c("Old data","New data"))+
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size=14))
+  
+#qqplots
+ggplot(ewas.results[ewas.results$adversity %in% c("smoking","abuse"),], 
+       aes(sample= P.Value, col = data))+
+  stat_qq_line() +
+  stat_qq_point() +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantiles")+
+  facet_wrap(~adversity)
+
+#adapted from https://slowkow.com/notes/ggplot2-qqplot/
+gg_qqplot <- function(ps, ci = 0.95) {
+  n  <- length(ps)
+  df <- data.frame(
+    observed = -log10(sort(ps)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1))
+  )
+  log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+  log10Po <- expression(paste("Observed -log"[10], plain(P)))
+  ggplot(df) +
+    geom_ribbon(
+      mapping = aes(x = expected, ymin = clower, ymax = cupper),
+      alpha = 0.1
+    ) +
+    geom_point(aes(expected, observed), shape = 1, size = 3) +
+    geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+    # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+    # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+    xlab(log10Pe) +
+    ylab(log10Po)
+}
+inflation.sigma <- function(ps) {
+  chisq <- qchisq(1 - ps, 1)
+  lambda <- median(chisq) / qchisq(0.5, 1)
+  lambda
+}
+
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Plots/")
+
+for(i in unique(ewas.results$adversity)){
+  #old data EWAS
+  print(paste0("Adversity = ", i, "   Data = old"))
+  
+  ps = ewas.results$P.Value[ewas.results$adversity== i & ewas.results$data=="old"]
+  bc = bacon(ewas.results$t[ewas.results$adversity== i & ewas.results$data=="old"])
+  png(paste0("QQplots/EWAS/1.Old/01_old_EWAS_", i,"_bc.png"), width = 600, height =400)
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.08, vjust = 3, size = 8,
+             label = sprintf("λ.bacon = %.2f", bacon::inflation(bc)))+
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " in the old data"))
+  print(p)
+  dev.off()
+  rm(p, ps)
+  
+  #new data EWAS
+  print(paste0("Adversity = ", i, "   Data = new"))
+  ps = ewas.results$P.Value[ewas.results$adversity== i & ewas.results$data=="new"]
+  bc = bacon(ewas.results$t[ewas.results$adversity== i & ewas.results$data=="new"])
+  png(paste0("QQplots/EWAS/2.New/02_new_EWAS_", i,"_bc.png"), width = 600, height =400)
+  
+  p <- gg_qqplot(ps) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = sprintf("λ = %.2f", inflation.sigma(ps))) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.08, vjust = 3, size = 8,
+             label = sprintf("λ.bacon = %.2f", bacon::inflation(bc)))+
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    ggtitle(paste0(labels[[i]], " in the new data"))
+  print(p)
+  dev.off()
+  rm(p, ps,bc)
+  rm(i)
+}
+
+rm(gg_qqplot, inflation.sigma)
+
+#qqplots combined - better
+#adapted from https://slowkow.com/notes/ggplot2-qqplot/
+gg_qqplot.2 <- function(ps1, ps2, ci = 0.95) {
+  n  <- length(ps1)
+  df1 <- data.frame(
+    observed = -log10(sort(ps1)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    Analysis = "Old data"
+  )
+  
+  df2 <- data.frame(
+    observed = -log10(sort(ps2)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    Analysis = "New data"
+  )
+  
+  df <- rbind(df1, df2)
+  df$title <- labels
+  log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+  log10Po <- expression(paste("Observed -log"[10], plain(P)))
+  
+  ggplot(df) +
+    geom_ribbon(
+      mapping = aes(x = expected, ymin = clower, ymax = cupper),
+      alpha = 0.1
+    ) +
+    geom_point(aes(expected, observed, shape = Analysis, col = Analysis), size = 3) +
+    geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+    # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+    # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+    xlab(log10Pe) +
+    ylab(log10Po)
+}
+inflation.sigma <- function(ps) {
+  chisq <- qchisq(1 - ps, 1)
+  lambda <- median(chisq) / qchisq(0.5, 1)
+  lambda
+}
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/Plots/")
+
+for(i in unique(ewas.results$adversity)){
+  print(i)
+  ps1 = ewas.results$P.Value[ewas.results$adversity== i & ewas.results$data=="old"]
+  bc1 = bacon(ewas.results$t[ewas.results$adversity== i & ewas.results$data=="old"])
+  ps2 = ewas.results$P.Value[ewas.results$adversity== i & ewas.results$data=="new"]
+  bc2 = bacon(ewas.results$t[ewas.results$adversity== i & ewas.results$data=="new"])
+  
+  png(paste0("QQplots/EWAS/3.Combined/03_combined_", i,"_bc.png"), width = 900, height =600)
+  p <- gg_qqplot.2(ps1, ps2) +
+    theme_bw(base_size = 18) +
+    annotate(geom = "text", x = -Inf, y = Inf,
+             hjust = -0.15, vjust = 1 + 0.15 * 3, size = 8,
+             label = paste0(sprintf("λ (old) = %.2f", inflation.sigma(ps1)), "\n",
+                            sprintf("λ.bacon (old) = %.2f", bacon::inflation(bc1)), "\n",
+                            sprintf("λ (new) = %.2f", inflation.sigma(ps2)), "\n",
+                            sprintf("λ.bacon (new) = %.2f", bacon::inflation(bc2)), "\n")) +
+    theme(axis.ticks = element_line(size = 0.5),
+          panel.grid = element_blank())+
+    scale_color_manual(values = viridis(n=2, end=0.7))+
+    ggtitle(labels[names(labels) ==i][[1]])
+    
+  print(p)
+  dev.off()
+  rm(p, ps1, ps2, bc1, bc2)
+  
+}
+
+rm(gg_qqplot.2, inflation.sigma)
+
+```
+
+*Delta beta analysis*
+```{r}
+
+for(i in unique(ewas.results$adversity)){
+  if(i == 'smoking'){ewas.delta.summary <- data.frame()}
+  print(i)
+  old <- ewas.results[ewas.results$adversity == i & ewas.results$data=='old',]
+  old <- old[order(old$P.Value),]
+  old$rank <- 1:nrow(old)
+  new <- ewas.results[ewas.results$adversity == i & ewas.results$data=='new',]
+  new <- new[order(new$P.Value),]
+  new$rank <- 1:nrow(new)
+  new <- new[match(old$cpg, new$cpg),]
+  head(new)
+  
+  ewas.delta.summary <- rbind(ewas.delta.summary, 
+                              data.frame(cpg = old$cpg, adversity=i,
+                                         old.pval = old$P.Value, new.pval = new$P.Value,
+                                         old.adj = old$adj.P.Val, new.adj = new$adj.P.Val,
+                                         old.fc = old$logFC, new.fc = new$logFC,
+                                         old.delta = old$delta, new.delta=new$delta,
+                                         old.rank = old$rank, new.rank = new$rank))
+  rm(old, new)
+  }
+head(ewas.delta.summary)
+ewas.delta.summary$concordant <- ifelse(ewas.delta.summary$old.delta<0 &
+                                          ewas.delta.summary$new.delta<0, "yes", 
+                                        ifelse(ewas.delta.summary$old.delta>0 & 
+                                                 ewas.delta.summary$new.delta>0, "yes","no"))
+head(ewas.delta.summary)
+
+#Figure S1 D
+ggplot(ewas.delta.summary[which(ewas.delta.summary$old.adj <0.05 | ewas.delta.summary$new.adj <0.05),],
+       aes(old.delta, new.delta, col = adversity, shape =adversity))+
+  geom_point(size=2)+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0, linetype =3)+
+  geom_vline(xintercept = 0, linetype =3)+
+  theme_classic()+
+  theme(axis.text = element_text(size =12),
+        axis.title=element_text(size =14),
+        legend.title = element_text(size =12), 
+        legend.text = element_text(size =12))+
+  scale_color_manual("Adversity", labels =c("Smoking","Abuse","Financial stress"),
+                     values = c("darkgrey", viridis(option='plasma', n=7, end = 0.9)[1:2] ))+
+  scale_shape("Adversity", labels =c("Smoking","Abuse","Financial stress"))+
+  xlab("DNAm change exposed - unexposed (old data)")+
+  ylab("DNAm change exposed - unexposed (new data)")+
+  xlim(-0.18, 0.18)+
+  ylim(-0.18, 0.18)
+
+cor(ewas.delta.summary[which(ewas.delta.summary$old.adj <0.05 | ewas.delta.summary$new.adj <0.05),
+                       c("old.delta","new.delta")]) #0.923
+
+for(i in unique(ewas.delta.summary$adversity)){
+  if(i == "smoking"){ewas.overlap.summary <- data.frame()}
+  print(i)
+  dat <- ewas.delta.summary[ewas.delta.summary$adversity ==i,]
+  head(dat)
+  for(x in c(seq(10, 500, 10), seq(600,100000, 100), seq(110000,440000, 1000))){
+    if(x %% 10000 ==0){print(x)}
+    temp <- dat[dat$old.rank <= x & dat$new.rank <=x, ]
+    temp.2 <- data.frame(adversity = i, 
+                         rank = x, 
+                         num = nrow(temp),
+                         percent = nrow(temp)/x,
+                         cor = cor(temp$old.rank, temp$new.rank, method ='spearman'),
+                         db.conc = length(temp$concordant =="yes"),
+                         db.conc.percent = sum(temp$concordant =="yes")/nrow(temp))
+    ewas.overlap.summary <- rbind(ewas.overlap.summary, temp.2)
+    rm(temp, temp.2)
+  }
+}
+
+tail(ewas.overlap.summary[ewas.overlap.summary$adversity=='smoking',], n = 10)
+
+#Figure 3D
+ggplot(ewas.overlap.summary[ewas.overlap.summary$adversity !='smoking',], 
+       aes(x = rank, y = db.conc.percent, col = adversity))+
+  geom_line(size = 1.3)+
+  theme_classic()+
+  scale_color_manual("Adversity", 
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"),
+                     values = c(viridis(option='plasma',n= 7, end=0.9)))+
+  ylim(0.7,1)+
+  ylab("Fraction of directionally concordant CpGs")+
+  xlab("Rank of CpGs")+
+  theme(axis.text = element_text(size =12),
+        axis.title=element_text(size =14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12 ))+
+  scale_x_continuous(breaks = c(0, 100000, 200000, 300000, 400000), labels = c("0","100000","200000","300000","400000"))+
+  theme(legend.position = "none")  
+
+#Figure 3C
+ggplot(ewas.overlap.summary[ewas.overlap.summary$rank<=50000 & ewas.overlap.summary$adversity !='smoking',], 
+       aes(x = rank, y = abs(cor), col = adversity))+
+  geom_line(size=1.3)+
+  theme_classic()+
+  scale_color_manual("Adversity", 
+                     labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"),
+                     values = c( viridis(option='plasma',n= 7, end=0.9)))+
+  ylab("CpG rank correlation of old vs new data")+
+  xlab("Rank of CpGs")+
+  theme(axis.text = element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12 ))+
+  theme(legend.position = "none")  
+
+#Figure S1C
+ggplot(ewas.overlap.summary[ewas.overlap.summary$rank<=50000,], 
+       aes(x = rank, y = abs(cor), col = adversity))+
+  geom_line(size=1.3)+
+  theme_classic()+
+  scale_color_manual(values = c( "black", viridis(option='plasma',n= 7, end=0.9)), "Adversity",
+                     labels = c("Smoking","Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"))+
+  ylab("CpG rank correlation of old vs new data")+
+  xlab("Rank of CpGs")+
+  theme(axis.text = element_text(size=12),
+        axis.title=element_text(size=14), 
+        legend.title = element_text(size =12),
+        legend.text = element_text(size=12))+
+  theme(legend.position = c(0.8, 0.78))  
+
+#Figure 3B
+ggplot(ewas.overlap.summary[ewas.overlap.summary$rank %in% 
+                              c(10, 50, 100, 1000, 5000, 50000) &
+                              ewas.overlap.summary$adversity != "smoking",], 
+       aes(x = adversity, y = percent, fill = adversity, alpha = factor(rank)))+
+  geom_bar(stat='identity', position = 'dodge', col ='black')+
+  theme_classic()+
+  scale_fill_manual(values = c(viridis(option='plasma',n= 7, end=0.9)), "Adversity",
+                    labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"))+
+  scale_alpha_manual(values = c(1, 0.8, 0.6, 0.4, 0.2, 0.1), "Top N CpGs")+
+  ylim(0,1)+
+  theme(axis.text = element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.text.x = element_text(angle =45, size=12, hjust=1, vjust = 1),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12 ))+
+  xlab("Adversity")+
+  ylab("Overlapping CpGs between data versions")+
+  scale_x_discrete(labels = c("Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty") )+
+  theme(legend.position = "none")
+
+## Figure S1B
+ggplot(ewas.overlap.summary[ewas.overlap.summary$rank %in% 
+                              c(10,50, 100, 1000, 5000, 50000),], 
+       aes(x = adversity, y = percent, fill = adversity, alpha = factor(rank)))+
+  geom_bar(stat='identity', position = 'dodge', col ='black')+
+  theme_classic()+
+  scale_fill_manual(values = c("black", viridis(option='plasma',n= 7, end=0.9)),
+                                labels = c("Smoking","Abuse","Financial stress",
+                                           "Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty"), "Adversity")+
+  scale_alpha_manual(values = c(1, 0.8, 0.6, 0.4, 0.2, 0.1), "Top N CpGs")+
+  ylim(0,1)+
+  theme(axis.text = element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.text.x = element_text(angle =45, size=12, hjust=1, vjust = 1),
+        legend.title = element_text(size =12),
+        legend.text = element_text(size =12 ))+
+  xlab("Adversity")+
+  ylab("Overlapping CpGs between data versions")+
+  scale_x_discrete(labels = c("Smoking", "Abuse","Financial stress","Family instability",
+                                "Maternal psych.", "Neighborhood dis.","One adult house",
+                                "Parental cruelty") )
+
+summary(ewas.overlap.summary$db.conc.percent)
+summary(factor(ewas.delta.summary$concordant[ewas.delta.summary$adversity == "smoking"]))
+
+ewas.overlap.summary[ewas.overlap.summary$rank == 440000,]
+
+
+```
+
+#Checking Bonferroni
+```{r}
+smoke.hits.bonf <- ewas.results[ewas.results$bonf<0.05 & ewas.results$adversity=="smoking",]
+smoke.venn <- list(Old = smoke.hits.bonf$cpg[smoke.hits.bonf$data =='old'],
+                   New = smoke.hits.bonf$cpg[smoke.hits.bonf$data =='new'])
+plot(euler(smoke.venn), quantities= T, labels =F)
+12/15; 12/14; 12/17 #0.8; 0.86; 0.71
+20/27; 20/23; 20/30 #0.74; 0.87; 0.67
+
+for(i in unique(ewas.results$adversity)){
+  if(i == 'smoking'){ewas.delta.summary <- data.frame()}
+  print(i)
+  old <- ewas.results[ewas.results$adversity == i & ewas.results$data=='old',]
+  old <- old[order(old$P.Value),]
+  old$rank <- 1:nrow(old)
+  new <- ewas.results[ewas.results$adversity == i & ewas.results$data=='new',]
+  new <- new[order(new$P.Value),]
+  new$rank <- 1:nrow(new)
+  new <- new[match(old$cpg, new$cpg),]
+  head(new)
+  
+  ewas.delta.summary <- rbind(ewas.delta.summary, 
+                              data.frame(cpg = old$cpg, adversity=i,
+                                         old.pval = old$P.Value, new.pval = new$P.Value,
+                                         old.adj = old$bonf, new.adj = new$bonf,
+                                         old.fc = old$logFC, new.fc = new$logFC,
+                                         old.delta = old$delta, new.delta=new$delta,
+                                         old.rank = old$rank, new.rank = new$rank))
+  rm(old, new)
+  }
+head(ewas.delta.summary)
+ewas.delta.summary$concordant <- ifelse(ewas.delta.summary$old.delta<0 &
+                                          ewas.delta.summary$new.delta<0, "yes", 
+                                        ifelse(ewas.delta.summary$old.delta>0 & 
+                                                 ewas.delta.summary$new.delta>0, "yes","no"))
+head(ewas.delta.summary)
+
+#Figure S1 D
+ggplot(ewas.delta.summary[which(ewas.delta.summary$old.adj <0.05 | ewas.delta.summary$new.adj <0.05),],
+       aes(old.delta, new.delta, col = adversity, shape =adversity))+
+  geom_point(size=2)+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0, linetype =3)+
+  geom_vline(xintercept = 0, linetype =3)+
+  theme_classic()+
+  theme(axis.text = element_text(size =12),
+        axis.title=element_text(size =14),
+        legend.title = element_text(size =12), 
+        legend.text = element_text(size =12))+
+  scale_color_manual("Adversity", labels =c("Smoking","Abuse","Financial stress"),
+                     values = c("darkgrey", viridis(option='plasma', n=7, end = 0.9)[1:2] ))+
+  scale_shape("Adversity", labels =c("Smoking","Abuse","Financial stress"))+
+  xlab("DNAm change exposed - unexposed (old data)")+
+  ylab("DNAm change exposed - unexposed (new data)")+
+  xlim(-0.18, 0.18)+
+  ylim(-0.18, 0.18)
+
+cor(ewas.delta.summary[which(ewas.delta.summary$old.adj <0.05 | ewas.delta.summary$new.adj <0.05),
+                       c("old.delta","new.delta")]) #0.898
+```
+
+*Smoking delta betas*
+```{r}
+old.model <- data.frame(model.matrix(~1 + sustained.smoke  +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells$CD8 + cells$CD4 + cells$CD56 + 
+                            cells$CD19 + cells$CD14 + cells$Gran, 
+                          data = beast.small.old))
+dim(old.model)
+new.model <- data.frame(model.matrix(~1 + sustained.smoke +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells.f7.new$Bcell + cells.f7.new$CD4T + cells.f7.new$CD8T + 
+                            cells.f7.new$Gran + cells.f7.new$Mono + cells.f7.new$NK, 
+                          data = beast.small.new))
+dim(new.model)
+
+#smoking
+
+ewas.delta.smoking <- temp
+head(ewas.delta.smoking)
+ewas.delta.smoking[grep("cg12803068", ewas.delta.smoking$cpg),]
+
+ewas.delta.smoking$consistent <- ifelse(ewas.delta.smoking$old.delta <0 & ewas.delta.smoking$new.delta <0, "yes", 
+                                ifelse(ewas.delta.smoking$old.delta >0 & ewas.delta.smoking$new.delta >0, "yes", "no"))
+summary(factor(ewas.delta.smoking$consistent))
+
+ewas.results.sig <- ewas.results[ewas.results$adj.P.Val<0.05,]
+tail(ewas.results.sig)
+
+ewas.delta.smoking.sig <- ewas.delta.smoking[ewas.delta.smoking$cpg %in% 
+                                        ewas.results.sig$cpg[ewas.results.sig$adversity=='smoking'],]
+ewas.delta.smoking.sig$data <- ifelse(ewas.delta.smoking.sig$cpg %in% 
+                                        ewas.results.sig$cpg[ewas.results.sig$data=="old" &
+                                                             ewas.results.sig$adversity =='smoking'],
+                                      "old","new")
+ewas.delta.smoking.sig$data[which(ewas.delta.smoking.sig$data=='old' &
+                                        ewas.delta.smoking.sig$cpg %in% 
+                                        ewas.results.sig$cpg[ewas.results.sig$data=="new" &
+                                                             ewas.results.sig$adversity =='smoking'])] <-"both"
+
+summary(factor(ewas.delta.smoking.sig$data))
+
+head(ewas.delta.smoking.sig)
+ggplot(ewas.delta.smoking.sig, aes(x=old.delta, y= new.delta, col = data))+
+  geom_point()+
+  geom_abline(linetype = 3)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  xlim(-0.1, 0.2)+
+  ylim(-0.1, 0.1)
+
+
+smoke.venn <- list(Old = ewas.results.sig$cpg[ewas.results.sig$data =='old'],
+                   New = ewas.results.sig$cpg[ewas.results.sig$data =='new'])
+plot(euler(smoke.venn), quantities= F, labels =F)
+
+
+## plotting the logFC from EWAS for significant smoking hits 
+temp <- ewas.results[ewas.results$adj.P.Val <0.05 & ewas.results$adversity =="smoking",]
+temp <- temp[temp$cpg %in% temp$cpg[duplicated(temp$cpg)],]
+cg <- unique(temp$cpg[duplicated(temp$cpg)])
+temp <- temp[match(c(paste(cg,"old", sep ="_"), paste(cg,"new",sep="_")),
+                   paste(temp$cpg, temp$data, sep ="_")),]
+temp <- data.frame(cpg = temp$cpg[1:20], 
+                   old = temp$logFC[1:20], 
+                   new = temp$logFC[21:40])
+head(temp)
+ewas.results[grep("cg12803068", ewas.results$cpg),]
+temp[grep("cg12803068", temp$cpg),]
+
+ggplot(temp, aes(x = old, y = new))+
+  geom_point()+
+  geom_point()+
+  geom_abline(linetype = 3)+
+  geom_hline(yintercept = 0, linetype = 3)+
+  geom_vline(xintercept = 0, linetype = 3)+
+  theme_classic()+
+  ylab("new logFC")+
+  xlab("old logFC")
+head(ewas.results)
+```
+
+*delta betas*
+```{r}
+
+for(i in unique(ewas.results$adversity)[-1]){
+  if(i == "abuse"){ewas.delta <- data.frame()}
+  print(i)
+  adversity <- adversities.ever.new[,i]
+  model.new <- data.frame(model.matrix(~1 + adversity + Female + WHITE + mom_birthage + 
+                          ppregnum + ed_momgest + birthweight + 
+                          cells.f7.new$Bcell + cells.f7.new$CD4T + 
+                          cells.f7.new$CD8T + cells.f7.new$Gran + 
+                          cells.f7.new$Mono + cells.f7.new$NK, 
+                          data = beast.small.new))
+  
+  adversity <- adversities.ever.old[,i]
+  model.old <- data.frame(model.matrix(~1 + adversity +Female + WHITE + mom_birthage + 
+                            ppregnum + ed_momgest + birthweight + 
+                            cells$CD8 + cells$CD4 + cells$CD56 + 
+                            cells$CD19 + cells$CD14 + cells$Gran, 
+                          data = beast.small.old))
+
+  
+  a <- ewas.results[ewas.results$adversity ==i & ewas.results$data =='old',]
+  a <- a[order(a$P.Value),]
+  a <- a[1:2000,]
+  b <- ewas.results[ewas.results$adversity ==i & ewas.results$data =='new',]
+  b <- b[order(b$P.Value),]
+  b <- b[1:2000,]
+  c <- a[which(a$cpg %in% b$cpg),]
+  dim(c)
+  
+  for(x in 1:nrow(c)){
+    if(x == 1){ temp <- data.frame()}
+    if(x %% 100 == 0){print(x)}
+    cpg = c$cpg[x]
+    dnam.old <- betas.old[cpg,match(rownames(model.old), colnames(betas.old))]
+    dnam.new <- betas.f7.win[cpg,match(rownames(model.new), colnames(betas.f7.win))]
+    
+    temp <- rbind(temp, data.frame(cpg = cpg, 
+               adversity = i, 
+               old.exp = mean(dnam.old[model.old$adversity ==1]),
+               old.unexp = mean(dnam.old[model.old$adversity ==0]),
+               old.delta = mean(dnam.old[model.old$adversity ==1])-mean(dnam.old[model.old$adversity ==0]),
+               new.exp = mean(dnam.new[model.new$adversity ==1]),
+               new.unexp = mean(dnam.new[model.new$adversity ==0]),
+               new.delta = mean(dnam.new[model.new$adversity ==1])-mean(dnam.new[model.new$adversity ==0])))
+               
+    
+  }
+  rm(dnam.old, dnam.new, cpg)
+  (adversities.ever)
+  
+  ewas.delta <- rbind(ewas.delta, temp)
+  rm(a,b,c, temp, model.old, model.new)
+}
+head(ewas.delta)
+
+
+ewas.delta$consistent <- ifelse(ewas.delta$old.delta <0 & ewas.delta$new.delta <0, "yes", 
+                                ifelse(ewas.delta$old.delta >0 & ewas.delta$new.delta >0, "yes", "no"))
+
+ggplot(ewas.delta[ewas.delta$adversity=='abuse',][1:50,], aes ( x = old.delta, y= new.delta))+
+  geom_point()+
+  geom_abline(linetype=2)+
+  geom_hline(yintercept = 0, linetype =3)+
+  geom_vline(xintercept = 0, linetype=3)+
+  theme_classic()
+
+ggplot(ewas.delta[ewas.delta$adversity=='abuse',][1:50,], aes ( x = old.delta, y= new.delta))+
+  geom_point()+
+  geom_abline(linetype=2)+
+  geom_hline(yintercept = 0, linetype =3)+
+  geom_vline(xintercept = 0, linetype=3)+
+  theme_classic()
+  
+ewas.delta.2 <- rbind(ewas.delta, ewas.delta.smoking)
+
+for(i in unique(ewas.delta.2$adversity)){
+  if(i == "abuse"){ewas.db.concordant <- data.frame()}
+  print(i)
+    a <- ewas.results[ewas.results$adversity ==i & ewas.results$data =='old',]
+    a <- a[order(a$P.Value),]
+    b <- ewas.results[ewas.results$adversity ==i & ewas.results$data =='new',]
+    b <- b[order(b$P.Value),]
+  
+    for(x in c(seq(10,90, 10),
+             seq(100, 2000, 100))){
+    
+    
+    d <- a[1:x,]
+    e <- b[1:x,]
+    c <- d[which(d$cpg %in% e$cpg),]
+    dim(c)
+  
+    concordant <- ewas.delta.2$consistent[which(ewas.delta.2$adversity ==i & ewas.delta.2$cpg %in% c$cpg)]
+    head(concordant)
+  
+    ewas.db.concordant <- rbind(ewas.db.concordant, data.frame(adversity = i, top = x,
+             num = nrow(c), 
+             concordant = sum(concordant =="yes"),
+             percent = sum(concordant =="yes")/nrow(c),
+             mean.db.old = mean(ewas.delta.2$old.delta[which(ewas.delta.2$adversity ==i & ewas.delta.2$cpg %in% c$cpg)]),
+             mean.db.new = mean(ewas.delta.2$new.delta[which(ewas.delta.2$adversity ==i & ewas.delta.2$cpg %in% c$cpg)])
+             ))
+    }
+    rm(a,b,c,concordant)
+}
+
+tail(ewas.db.concordant)
+
+
+ggplot(ewas.db.concordant[ewas.db.concordant$top<=2000,], 
+       aes( x = log10(top), y= percent*100, col= adversity, group = adversity))+
+  #geom_point()+
+  geom_line(size = 1.2)+
+  theme_classic()+
+  geom_hline(yintercept = 50, linetype = 2)+
+  ylab("Percent concordant (direction of change)")+
+  xlab("log10(# of top ranked CpGs)")+
+  #scale_color_viridis(option='plasma', discrete=T, end=0.9, "Adversity")+
+  scale_color_manual(values = c(viridis(option='plasma', end = 0.9, n = 7), "black"))+
+  theme(axis.text=element_text(size =12 ), 
+        axis.title =element_text(size =14))
+
+head(ewas.db.concordant)
+
+```

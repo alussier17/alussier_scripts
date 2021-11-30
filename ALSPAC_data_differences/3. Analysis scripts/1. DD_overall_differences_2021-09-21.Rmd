@@ -1,0 +1,395 @@
+---
+title: "ALSPAC_data_differences"
+output: html_document
+date: 2020-07-08
+name: Alexandre Lussier
+---
+
+
+*Loading libraries*
+```{r}
+library(dplyr)
+library(ggplot2)
+library(limma)
+library(matrixStats)
+library(reshape)
+library(viridis)
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/")
+load("betas_F7_WIN_20200128.Rdata", verbose=T)
+```
+
+*Loading old DNAm data*
+```{r}
+
+load("tostBetas_F7.rv2.Rdata", verbose=T)
+dim(tbetas)
+load("F7_cellcounts.Rdata", verbose=T)
+dim(cells)
+
+#removing twins
+load("ARIES_noTwin_20180730.Rdata")
+head(df)
+twins <- colnames(tbetas)[-(which(colnames(tbetas) %in% df$ID))]
+tbetas <- tbetas[,-which(colnames(tbetas) %in% twins)]
+head(tbetas)
+cells$ID <- paste(cells$cidB1471, cells$qlet, sep ="")
+cells <- cells[-which(cells$ID %in% twins),]
+cells <- cells[match(colnames(tbetas), paste(cells$cidB1471, cells$qlet, sep ="")),]
+
+```
+
+*Loading new DNAm data*
+```{r}
+load("betas_F7_unfiltered_20200708.Rdata", verbose=T)
+dim(betas.f7)
+samples.f7.new <- read.table("samplesheet_F7_20200121.txt", header=T)
+dim(samples.f7.new)
+identical(colnames(betas.f7), as.character(samples.f7.new$Sample_Name)) # TRUE
+colnames(betas.f7) <- paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "")
+
+cells.f7.new <- read.table("celltypes_F7_20200121.txt", header=T)  
+identical(as.character(cells.f7.new$Sample_Name), as.character(samples.f7.new$Sample_Name)) #TRUE
+cells.f7.new$ID <- paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "")
+dim(cells.f7.new)
+
+#removing twins
+remove <- which(colnames(betas.f7) %in% twins)
+betas.f7 <- betas.f7[,-remove]
+dim(betas.f7)
+samples.f7.new <- samples.f7.new[-which(paste(samples.f7.new$ALN, samples.f7.new$QLET, sep = "") %in% twins),]
+cells.f7.new <- cells.f7.new[-which(cells.f7.new$ID %in% twins),]
+
+
+```
+
+*Basic descriptives*
+```{r}
+#sample overlap
+dim(betas.f7) #new = 970 samples 
+dim(tbetas) #old = 973 samples
+length(which(colnames(betas.f7) %in% colnames(tbetas))) #948/973 samples overlap 
+sample.overlap <- colnames(betas.f7)[colnames(betas.f7) %in% colnames(tbetas)]
+
+#CpG overlap
+dim(betas.f7) #new = 482855 CpGs after processing (removal of SNP probes and bad probes) 
+dim(tbetas) #old = 485577 (no removal of probes)
+tbetas <- tbetas[match(rownames(betas.f7), rownames(tbetas)),]
+
+
+#differences in means 
+mean.summary <- data.frame(cpg = rownames(betas.f7),
+                           new = rowMeans(betas.f7),
+                           old = rowMeans(tbetas)) 
+head(mean.summary)
+mean.summary$diff <- mean.summary$new - mean.summary$old
+mean.summary$diff.2 <- ifelse(mean.summary$diff>0, "Old>New", "New>Old")
+sum(mean.summary$diff>0)
+  
+ggplot(mean.summary, aes(x= old, y =new))+
+  geom_point(alpha = 0.2, size = 0.2, col = "grey")+
+  theme_classic()+
+  xlab("Mean DNA methylation\nOld data")+
+  ylab("New data\nMean DNA methylation")+
+  geom_abline(slope = 1, col = 'black')+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  geom_hline(yintercept = 1, linetype = 3, col = 'grey')+
+  geom_vline(xintercept = 1, linetype = 3, col = 'grey')
+  #scale_color_manual(values = viridis(n=2, begin = 0.3, end = 0.7), 
+  #                "Mean difference",
+  #                  labels = c("New>Old: 246,280 CpGs",
+  #                             "Old>New: 236,575 CpGs"))+
+  #
+
+mean.summary.melt <- melt(mean.summary[,1:3])
+head(mean.summary.melt)
+mean.summary.melt$variable <- factor(mean.summary.melt$variable, levels = c("old","new"))
+
+ggplot(mean.summary.melt, aes(value, col = variable, linetype=variable))+
+  geom_density(fill = NA)+
+  theme_classic()+
+  xlab("Mean DNA methylation")+
+  ylab("Relative density of CpGs")+
+  scale_color_manual("Data version", values = c("grey","black"), 
+                     labels = c("Old data", "New data"))+
+  scale_linetype_manual("Data version", values = c(2, 1), 
+                     labels = c("Old data", "New data"))+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  theme(legend.position = c(0.8, 0.8))
+
+
+#differences in sample means
+mean.summary.indiv <- data.frame(ID = sample.overlap,
+                           new = colMeans(betas.f7[,sample.overlap]),
+                           old = colMeans(tbetas[,sample.overlap]))
+head(mean.summary.indiv)
+
+mean.summary.indiv.melt <- melt(mean.summary.indiv)
+mean.summary.indiv.melt$variable <- factor(mean.summary.indiv$variable, levels = c("old", "new"))
+
+ggplot(mean.summary.indiv.melt, aes(x= variable, y =value))+
+  geom_boxplot()+
+  theme_classic()+
+  xlab("Dataset")+
+  ylab("Mean DNA methylation per sample")+
+  #geom_abline(slope = 1, col = 'black')+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  scale_x_discrete(labels = c("Old data", "New data"))
+
+
+#Differences in variability 
+rowSds(as.matrix(tbetas[1:10,]))
+str(tbetas[match(rownames(betas.f7), rownames(tbetas)),][1:5,1:5])
+sd.summary <- data.frame(cpg = rownames(betas.f7),
+                           new = rowSds(betas.f7),
+                           old = rowSds(as.matrix(tbetas)))
+head(sd.summary)
+sd.summary$diff <- sd.summary$new - sd.summary$old
+summary(sd.summary$diff>=0)
+sd.summary$diff.2 <- ifelse(sd.summary$diff>0, "New>Old","Old>New")
+head(sd.summary)
+library()
+ggplot(sd.summary, aes(x= old, y =new))+
+  geom_point(alpha = 0.2, size = 0.2, col = "grey")+
+  theme_classic()+
+  xlab("SD DNA methylation\nOld data")+
+  ylab("New data\nSD DNA methylation")+
+  geom_abline(slope = 1, col = 'black')+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  ylim(0, 0.45)+
+  xlim(0, 0.45)+
+  scale_color_manual(values = rev(viridis(n=2, begin = 0.3, end = 0.7)), 
+                    "SD difference",
+                    labels = c("New>Old: 182,016 CpGs",
+                               "Old>New: 300,839 CpGs"))+
+  theme(legend.position = c(0.2, 0.85))  
+  sum(adversity.new$P.Value <=(0.05/450745))
+  sum(adversity.new$P.Value <(0.05/450745))
+
+  #geom_hline(yintercept = 1, linetype = 3, col = 'grey')+
+  #geom_vline(xintercept = 1, linetype = 3, col = 'grey')
+
+ggplot(melt(sd.summary[,1:3]), aes(value, col = variable, linetype=variable))+
+  geom_density(fill = NA)+
+  theme_classic()+
+  xlab("SD DNA methylation")+
+  ylab("Density")+
+  scale_color_manual(values = c("black","grey"))+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))
+
+
+
+save(mean.summary, sd.summary, file = "ALPSAC_F7_mean_sd_differences_2020-08-12.Rdata")
+```
+
+*Sample correlations*
+```{r}
+correlations <- cor(betas.f7[,sample.overlap[]],
+    tbetas[rownames(betas.f7),sample.overlap[]])
+
+
+for(i in sample.overlap){
+  if(i == sample.overlap[1]){sample.correlations<- data.frame() }
+  a <- cor(betas.f7[,i], tbetas[rownames(betas.f7),i])
+  sample.correlations <- rbind(sample.correlations, 
+                               data.frame(i, a))
+  print(nrow(sample.correlations))
+}
+
+sd(sample.correlations[,2])
+
+ggplot(sample.correlations, aes(y= a))+
+  geom_boxplot(width = 0.5)+
+  theme_classic()+
+  ylim(0.95,1)+
+  ylab("Sample correlation")+
+  xlab("")+
+  theme(axis.title = element_text(size= 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_blank())
+
+ggplot(sample.correlations, aes(x= a))+
+  geom_density()+
+  theme_classic()+
+  xlim(0.9,1)+
+  xlab("Sample correlation")+
+  ylab("Density")+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))
+
+```
+
+*Cell types*
+```{r}
+head(cells)
+cells$ID <- rownames(cells)
+cells.2 <- data.frame(ID = cells$ID,
+                      Bcell = cells$CD19,
+                      CD4T = cells$CD4,
+                      CD8T = cells$CD56,  
+                      Gran = cells$Gran,
+                      Mono = cells$CD14, 
+                      NK = cells$CD8) 
+head(cells.2)
+
+#stats
+tidy(t.test(cells.2$Bcell, cells.f7.new$Bcell))
+tidy(t.test(cells.2$CD4T, cells.f7.new$CD4T))
+tidy(t.test(cells.2$CD8T, cells.f7.new$CD8T))
+tidy(t.test(cells.2$Gran, cells.f7.new$Gran))
+tidy(t.test(cells.2$Mono, cells.f7.new$Mono))
+tidy(t.test(cells.2$NK, cells.f7.new$NK))
+
+
+cells.2.melt <- melt(cells.2)
+head(cells.2.melt)
+
+cells.f7.new.melt <- melt(cells.f7.new[,-1])
+head(cells.f7.new.melt)
+head(cells.2.melt)
+
+cells.all <- rbind(data.frame(cells.2.melt, data ='old'),
+                   data.frame(cells.f7.new.melt, data = 'new'))
+
+ggplot(cells.all, aes(x = variable, y= value, fill = data))+
+  geom_boxplot(position = position_dodge())+
+  theme_classic()+
+  ylab("Cell type proportion")+
+  xlab("Cell type")+
+  scale_fill_viridis(discrete=T, begin = 0.3, end = 0.7)+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))
+
+
+cells.2.melt$ID.2 <- paste(cells.2.melt$ID, cells.2.melt$variable, sep ="")
+cells.f7.new.melt$ID.2 <- paste(cells.f7.new.melt$ID, cells.f7.new.melt$variable, sep ="")
+
+cells.2.melt.2 <- cells.2.melt[match(cells.f7.new.melt$ID.2, cells.2.melt$ID.2),]
+dim(cells.2.melt.2)
+cells.f7.new.melt.2 <- cells.f7.new.melt[match(cells.2.melt.2$ID.2, cells.2.melt.2$ID.2),]
+head(cells.f7.new.melt.2)
+
+cells.f7.new.melt.2$delta <- cells.f7.new.melt.2$value - cells.2.melt.2$value
+
+#Figure 2H
+ggplot(cells.f7.new.melt.2, aes(x=variable, y = delta))+
+  geom_hline(yintercept = 0, linetype=3, col="red")+
+  geom_boxplot(position = position_dodge())+
+  theme_classic()+
+  ylab("Cell type proportion difference (New - Old)")+
+  xlab("Cell type")+
+  scale_fill_viridis(discrete=T, begin = 0.3, end = 0.7)+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))
+
+```
+
+*Sample correlation by chromosome*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Aim 3/featureData.Rdata", verbose=T)
+
+dim(featureData)
+featureData <- featureData[match(rownames(betas.f7), rownames(featureData)),]
+dim(featureData)
+
+for(i in 1:22){
+  if(i == 1){sample.correlations.chr <- data.frame() }
+  print(i)
+  cpgs <- rownames(featureData)[which(featureData$CHR == i)]
+  
+  for(x in sample.overlap){
+    if(x == sample.overlap[1]){b <- data.frame() }
+    a <- cor(betas.f7[cpgs, x], tbetas[cpgs,x])
+    b <- rbind(b, data.frame(sample = x, cor = a, chr = i) )
+    }
+  
+  sample.correlations.chr <- rbind(sample.correlations.chr, b)
+}
+
+dim(sample.correlations.chr)
+
+save(sample.correlations.chr, file= "sample.correlations.chr.Rdata")
+
+ggplot(sample.correlations.chr, aes(x= cor, col= as.factor(chr)))+
+  geom_density()+
+  theme_classic()+
+  xlab("Sample correlation")+
+  ylab("Density")+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  scale_color_viridis(discrete=T)
+
+for(i in 1:22){
+  if(i==1){cor.means <- data.frame()}
+  a <- mean(sample.correlations.chr$cor[which(sample.correlations.chr$chr ==i)])
+  cor.means <- rbind(cor.means, data.frame(chr =i, cor=a))
+}
+
+ggplot(sample.correlations.chr, aes(y= cor, x= as.factor(chr)))+
+  geom_boxplot()+
+  theme_classic()+
+  ylab("Sample correlation")+
+  xlab("Chromosome")+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  scale_color_viridis()+
+  geom_hline(aes(yintercept = mean(cor)), linetype=3, col = 'red')+
+  geom_text(data=cor.means, aes(x= as.factor(chr), y= 1, label = round(cor,3)), size =3.3)
+
+
+
+```
+
+*Sample correlation by genomic feature*
+```{r}
+refgene <- data.frame(CpG = rownames(featureData), featureData$UCSC_REFGENE_GROUP)
+summary(refgene$featureData.UCSC_REFGENE_GROUP)
+refgene$ref <- strsplit2(refgene$featureData.UCSC_REFGENE_GROUP, ";")[,1]
+head(refgene)
+summary(as.factor(refgene$ref))
+refgene$ref[which(refgene$ref=="")] <- "Intergenic"
+
+for(i in unique(refgene$ref)){
+  if(i == unique(refgene$ref)[1]){sample.correlations.refgene <- data.frame() }
+  print(i)
+  cpgs <- as.character(refgene$CpG[which(refgene$ref ==i)])
+  
+  for(x in sample.overlap){
+    if(x == sample.overlap[1]){b <- data.frame() }
+    a <- cor(betas.f7[cpgs,x], tbetas[cpgs,x])
+    b <- rbind(b, data.frame(sample = x, cor = a, refgene = i) )
+  }
+  
+  sample.correlations.refgene <- rbind(sample.correlations.refgene, b)
+  
+}
+
+head(sample.correlations.refgene)
+save(sample.correlations.refgene, file= "sample.correlations.refgene.Rdata")
+
+for(i in unique(refgene$ref)){
+  if(i==unique(refgene$ref)[1]){cor.means.refgene <- data.frame()}
+  a <- mean(sample.correlations.refgene$cor[which(sample.correlations.refgene$refgene ==i)])
+  cor.means.refgene <- rbind(cor.means.refgene, data.frame(refgene =i, cor=a))
+}
+head(cor.means.refgene)
+
+ggplot(sample.correlations.refgene, aes(y= cor, x= as.factor(refgene)))+
+  geom_boxplot()+
+  theme_classic()+
+  ylab("Sample correlation")+
+  xlab("Genomic feature")+
+  theme(axis.title = element_text(size= 16),
+        axis.text = element_text(size = 14))+
+  scale_color_viridis()+
+  geom_hline(aes(yintercept = mean(cor)), linetype=3, col = 'red')+
+  geom_text(data=cor.means.refgene, aes(x= as.factor(refgene), y= 1, label = round(cor,3)))
+
+
+```
+
