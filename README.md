@@ -54,7 +54,7 @@
 
 # 4. Contact information
         Alexandre Lussier, PhD
-        Postdoctoral Associate, Department of Biological Statistics and Computational Biology
-        Cornell University
-        aal89[at]cornell.edu
+        Instructor, Department of Psychiatry
+        Massachusetts General Hospital
+        alussier[at]mgh.harvard.edu
 [Google Scholar](https://scholar.google.ca/citations?user=l1MwrMkAAAAJ&hl=en)
