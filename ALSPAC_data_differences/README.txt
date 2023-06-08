@@ -9,7 +9,7 @@ In this folder, you can find the following information regarding our manuscript.
 	- Main article and supplemental material 
 	- Correspondence article describing similarities and differences with prior findings by Dunn et al.
 
-1. Manuscripts (ADD PDFS). 
+1. Related articles 
 	- Manuscript by Zhu and colleagues, which describes the application of the SLCMA to epigenome-wide settings.
 	- Manuscript by Dunn and colleagues, which is the precursor to this paer.
 	

@@ -1,0 +1,159 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/")
+
+```
+
+
+```{r}
+#EWAS
+load("1.Clean_Aug2021/Results/ewas_results_overlap_only_2021-08-21.Rdata")
+ewas.sig <- ewas.results[ewas.results$adj.P.Val<=0.05,]
+dim(ewas.sig)
+head(ewas.sig)
+write.table(ewas.sig, file="1.Clean_Aug2021/Results/ewas_sig.txt",sep="\t",quote=F,
+            row.names = F, col.names=T)
+rm(ewas.sig, ewas.results)
+```
+
+```{r}
+#SLCMA
+load("1.Clean_Aug2021/Results/age7.all.results.2021-09-21.Rdata")
+load("1.Clean_Aug2021/Results/smoking.slcma.results.2021-09-21.Rdata")
+
+
+adv.sig <- age7.all.results[age7.all.results$FDR<=0.05,]
+smoke.sig <- smoking.slcma[smoking.slcma$FDR<=0.05,]
+
+
+all.sig <- rbind(adv.sig, smoke.sig)
+
+write.table(all.sig[all.sig$Analysis==1,], 
+            file = "1.Clean_Aug2021/Results/slcma_sig_old_covTest.txt",
+            sep="\t",quote=F, row.names = F, col.names=T)
+write.table(all.sig[all.sig$Analysis==2,], 
+            file = "1.Clean_Aug2021/Results/slcma_sig_new_covTest.txt",
+            sep="\t",quote=F, row.names = F, col.names=T)
+write.table(all.sig[all.sig$Analysis==6,], 
+            file = "1.Clean_Aug2021/Results/slcma_sig_new_SI.txt",
+            sep="\t",quote=F, row.names = F, col.names=T)
+
+rm(age7.all.results, smoking.slcma)
+```
+
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/ARIES_noTwin_20180730.Rdata", verbose = T)
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+twins <- rownames(tbetas.winsor)[-(which(rownames(tbetas.winsor) %in% df$ID))]
+rm(df)
+
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+dim(beast)
+colnames(beast)[grep("DNAm", colnames(beast))]
+
+beast <- beast[-which(paste0(beast$cidB1471, beast$qlet) %in% twins),]
+beast.DNAm.old <- beast[(which(beast$DNAm_7y=="available")),]
+beast.DNAm.old$ID <- paste0(beast.DNAm.old$cidB1471, beast.DNAm.old$qlet)
+beast.DNAm.new <- beast[(which(beast$DNAm2020_F7=="yes")),]
+beast.DNAm.new$ID <- paste0(beast.DNAm.new$cidB1471, beast.DNAm.new$qlet)
+
+length(which(beast.DNAm.old$ID %in% beast.DNAm.new$ID))
+beast.DNAm.old <- beast.DNAm.old[which(beast.DNAm.old$ID %in% beast.DNAm.new$ID),]
+beast.DNAm.new <- beast.DNAm.new[which(beast.DNAm.new$ID %in% beast.DNAm.old$ID),]
+dim(beast.DNAm.new)
+dim(beast.DNAm.old)
+rm(beast)
+
+#loading DNAm data
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/tostBetas_F7.rv2_winsor.Rdata", verbose=T)
+dim(tbetas.winsor)
+tbetas.winsor <- tbetas.winsor[match(beast.DNAm.old$ID, rownames(tbetas.winsor)),]
+which(rownames(tbetas.winsor) %in% twins)
+tbetas.winsor <- tbetas.winsor[,colnames(tbetas.winsor)%in%all.sig$CpG]
+dim(tbetas.winsor)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_F7_WIN_20200128.Rdata", verbose=T)
+f7.sample <- read.table("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_F7_20200121.txt", header=T)
+head(f7.sample)
+identical(as.character(f7.sample$Sample_Name), rownames(betas.f7.win)) #true
+rownames(betas.f7.win) <- paste0(f7.sample$ALN, f7.sample$QLET)
+rm(f7.sample)
+
+betas.f7.win <- betas.f7.win[match(beast.DNAm.new$ID, rownames(betas.f7.win)),]
+betas.f7.win <- betas.f7.win[,colnames(betas.f7.win)%in%all.sig$CpG]
+dim(betas.f7.win)
+
+
+
+age7.sig.db <- do.call(rbind, lapply(1:nrow(adv.sig), function(i){
+  if(i %% 50 ==0){print(i)}
+  model <- adv.sig$Model[i]
+  cpg <- as.character(adv.sig$CpG[i])
+  adversity <- adv.sig$Adversity[i]
+  adv.name <- paste(adversity, model, sep = "_")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(adv.sig[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+head(age7.sig.db)
+
+#smoking
+smoking.sig.db <- do.call(rbind, lapply(1:nrow(smoke.sig), function(i){
+  if(i %% 100 ==0){print(i)}
+  model <- smoke.sig$Model[i]
+  cpg <- as.character(smoke.sig$CpG[i])
+  adversity <- smoke.sig$Adversity[i]
+  adv.name <- paste("smoke", model, "trim", sep = ".")
+  
+  dat.old <- beast.DNAm.old[, which(colnames(beast.DNAm.old) == adv.name)]
+  dat.new <- beast.DNAm.new[, which(colnames(beast.DNAm.new) == adv.name)]
+  
+  dnam.old <- tbetas.winsor[,which(colnames(tbetas.winsor) == cpg)]
+  dnam.new <- betas.f7.win[,which(colnames(betas.f7.win) == cpg)]
+
+  a <- data.frame(smoke.sig[i,],
+                  old.unexposed = mean(dnam.old[which(dat.old ==0)]),
+                  old.exposed = mean(dnam.old[which(dat.old ==1)]),
+                  old.delta = mean(dnam.old[which(dat.old ==1)]) - mean(dnam.old[which(dat.old ==0)]),
+                  new.unexposed = mean(dnam.new[which(dat.new ==0)]),
+                  new.exposed = mean(dnam.new[which(dat.new ==1)]),
+                  new.delta = mean(dnam.new[which(dat.new ==1)]) - mean(dnam.new[which(dat.new ==0)])
+                  )
+  a
+}))
+
+
+all.sig.2 <- rbind(age7.sig.db, smoking.sig.db)
+
+write.table(all.sig.2[all.sig.2$Analysis==1,],
+            file= "1.Clean_Aug2021/Results/slcma_sig_old_covTest_delta.txt",
+            sep="\t",quote=F, row.names = F, col.names = T)
+write.table(all.sig.2[all.sig.2$Analysis==2,],
+            file= "1.Clean_Aug2021/Results/slcma_sig_new_covTest_delta.txt",
+            sep="\t",quote=F, row.names = F, col.names = T)
+write.table(all.sig.2[all.sig.2$Analysis==6,],
+            file= "1.Clean_Aug2021/Results/slcma_sig_new_sI_delta.txt",
+            sep="\t",quote=F, row.names = F, col.names = T)
+
+```
+
+
+
