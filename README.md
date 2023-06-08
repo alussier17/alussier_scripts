@@ -1,6 +1,16 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
-# 1. Human epigenetics projects - FASD
+# 1. Human epigenetics projects
+## [Time-varying childhood adversity and DNA methylation at age 15 ALSPAC)](/adversity-DNAm)
+    1. Manuscripts
+    2. SLCMA scripts
+    3. Analaysis scripts
+
+## [Childhood adversity and DNA methylation at age 7 and impact of data version differences(ALSPAC)](/ALSPAC_data_differences)
+    1. Manuscripts
+    2. SLCMA scripts
+    3. Analaysis scripts
+
 ## [DNA methylation signature of human FASD (NeuroDevNet cohort)](/DNAm_signature_FASD)
     A. Manuscript
     B. Scripts
