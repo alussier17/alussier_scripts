@@ -1,12 +1,18 @@
 README
 Documentation for the paper "Updates to data versions and analytic methods influence the reproducibility of results from epigenome-wide association studies"
 Author: 	Alexandre Lussier, PhD
-Last updated:	November 29, 2021
+Last updated:	May 10, 2023
 
 In this folder, you can find the following information regarding our manuscript. 
 
+0. Manuscript
+	- Main article and supplemental material 
+	- Correspondence article describing similarities and differences with prior findings by Dunn et al.
+
 1. Manuscripts (ADD PDFS). 
 	- Manuscript by Zhu and colleagues, which describes the application of the SLCMA to epigenome-wide settings.
+	- Manuscript by Dunn and colleagues, which is the precursor to this paer.
+	
 	- Manuscript by Dunn and colleagues, which describes the application of the SLCMA to analysis the time-dependent relationship between childhood adversity and DNA methylation.
 	- Supplemental
 
