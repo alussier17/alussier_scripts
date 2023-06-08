@@ -1,0 +1,1064 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(broom)
+library(dplyr)
+library(gplots)
+library(ggplot2)
+library(gridExtra)
+library(limma)
+library(readr)
+library(reshape)
+library(viridis)
+
+```
+
+*Loading results - results; old.results*
+```{r}
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - Data differences at age 7/DNAm-data-diff-analysis/1.Clean_Aug2021/")
+load("./Results/age7.all.results.2021-09-21.Rdata", verbose=T)
+
+results <- age7.all.results[age7.all.results$Analysis==6,]
+old.results <- age7.all.results[age7.all.results$Analysis==1,]
+dim(results)/7
+dim(old.results)/7
+sum(results$FDR<0.05) #46
+new.results.fdr <- results[results$FDR<0.05,]
+sum(old.results$FDR<0.05) #376
+old.results.fdr <- old.results[old.results$FDR<0.05,]
+rm(age7.all.results)
+
+```
+
+*Compare to DNAm at birth for top loci*
+```{r}
+#cell type correction for cord samples
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_Cord_WIN_20200128.Rdata", verbose=T)
+cord.samples <- read.table("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_Cord_20200121.txt", sep ="\t", header=T)
+cord.cells <- read.table("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/celltypes_Cord_20200121.txt", sep ="\t", header=T)
+identical(as.character(cord.samples$Sample_Name), rownames(betas.cord.win))#TRUE
+identical(as.character(cord.samples$Sample_Name), as.character(cord.cells$IID))#TRUE
+
+cord.betas <- betas.cord.win[,colnames(betas.cord.win) %in% new.results.fdr$CpG]
+dim(cord.betas)
+rm(betas.cord.win)
+
+cord.beta.cor <- do.call(cbind, lapply(1:ncol(cord.betas), function(i){
+  print(i)
+  a <- lm(cord.betas[,i] ~ Bcell+ CD4T+ CD8T+ Gran+ Mono+ NK+ nRBC, data=cord.cells )
+  resid(a) + mean(cord.betas[,i])
+  }))
+colnames(cord.beta.cor) <- colnames(cord.betas)
+rownames(cord.beta.cor) <- rownames(cord.betas)
+scatter.smooth(cord.beta.cor~cord.beta.cor)
+rm(cord.betas, cord.cells)
+##cord.betas.cor
+
+#### cell type correction for age 7 ####
+load("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/betas_F7_WIN_20200128.Rdata", verbose=T)
+f7.samples <- read.table("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/samplesheet_F7_20200121.txt", sep ="\t", header=T)
+f7.cells <- read.table("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC_DNAm_differences/data/celltypes_F7_20200121.txt", sep ="\t", header=T)
+identical(as.character(f7.samples$Sample_Name), rownames(betas.f7.win))#TRUE
+identical(as.character(f7.samples$Sample_Name), as.character(f7.cells$Sample_Name))#TRUE
+
+f7.betas <- betas.f7.win[,colnames(betas.f7.win) %in% new.results.fdr$CpG]
+dim(f7.betas)
+rm(betas.f7.win)
+
+f7.beta.cor <- do.call(cbind, lapply(1:ncol(f7.betas), function(i){
+  print(i)
+  a <- lm(f7.betas[,i] ~ Bcell+ CD4T+ CD8T+ Gran+ Mono+ NK, data=f7.cells )
+  resid(a) + mean(f7.betas[,i])
+  }))
+colnames(f7.beta.cor) <- colnames(f7.betas)
+rownames(f7.beta.cor) <- rownames(f7.betas)
+scatter.smooth(f7.beta.cor~f7.beta.cor)
+rm(f7.betas, f7.cells)
+# f7.betas.cor
+
+
+#### ASSOCIATION TESTING ####
+covars <- c("ed_momgest", "WHITE", "Female", "mom_birthage", "ppregnum",
+                     "birthweight","sustained.smoke")
+                     #"sample_type")
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/4- Master Files/ALSPAC_beast20200422.Rdata", verbose=T)
+
+#Cord associations#
+for(i in 1:nrow(new.results.fdr)){
+  print(i)
+  if(i == 1){cord.associations <- data.frame()}
+  temp <- new.results.fdr[i,]
+  age0 <- cord.beta.cor[,colnames(cord.beta.cor) == temp$CpG]
+  
+  #making complete cases with the correct adversity and year <= 7
+  b <- colnames(beast)[grep(paste0("^", temp$Adversity), colnames(beast))]
+  recency.vec <- gsub("m", "", gsub(paste0(temp$Adversity,"_"),"",b))
+  recency.vec[grep("y",recency.vec)] <- as.numeric(gsub("y","",
+                                                          recency.vec[grep("y",recency.vec)]))*12
+  recency.vec <- as.numeric(recency.vec)/12
+  
+  if(sum(recency.vec > 7) >0) { 
+    b <- b[-which(recency.vec>7)]
+    recency.vec <- recency.vec[-which(recency.vec>7)]
+  }
+  
+  exposure <- beast[,colnames(beast) %in% c("cidB1471", covars, b)]
+  exposure <- exposure[match(cord.samples$ALN, exposure$cidB1471),]
+  age0 <- age0[complete.cases(exposure)]
+  exposure <- exposure[complete.cases(exposure),]
+  
+  if(temp$Variable_Name == "recency"){
+    exp <- do.call("cbind", lapply(exposure[, colnames(exposure) %in% b], 
+                                   function(x) as.numeric(as.character(x))))
+    exposure <- exposure %>% 
+      mutate(accumulation = rowSums(exp)) %>% 
+      mutate(ever = ifelse(accumulation > 0, 1, 0))
+    exposure$recency <-  rowSums(exp %*% diag(recency.vec))
+    
+    colnames(exposure)[colnames(exposure)=="recency"] <- "exposure"
+    rm(b, exp, recency.vec)
+  }
+  
+  else{
+  colnames(exposure)[colnames(exposure) == temp$Variable_Name] <- "exposure"
+  }
+  
+  res <-tidy(lm(age0 ~ exposure + ed_momgest +WHITE + Female + 
+                  mom_birthage + ppregnum + birthweight +
+                  sustained.smoke, data = exposure))
+  
+  a <- data.frame(Cpg = temp$CpG,
+             Variable_Name = temp$Variable_Name, 
+             Model = temp$Method,
+             Timing = temp$Timing,
+             Adversity = temp$Adversity, 
+             N = nrow(exposure),
+             p.value = res$p.value[2],
+             estimate = res$estimate[2],
+             statistic = res$statistic[2],
+             std.error = res$std.error[2],
+             beta.unexp = mean(age0[which(exposure$exposure==0)]),
+             beta.exp = mean(age0[which(exposure$exposure>0)]))
+  a$delta <- a$beta.exp - a$beta.unexp
+  
+  cord.associations <- rbind(cord.associations, a)
+  
+  rm(res, a, b, exposure, age0, temp)
+}
+head(cord.associations)
+cord.associations$FDR <- p.adjust(cord.associations$p.value, method = "BH")
+cord.associations$bonf <- p.adjust(cord.associations$p.value, method = "bonferroni")
+sum(cord.associations$p.value<0.05) #3
+sum(cord.associations$FDR<0.05) #0
+sum(cord.associations$bonf<0.05) #0
+
+save(cord.associations, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - narrative_report/results/cord.associations.narrative_2022-03-18.Rdata")
+write.table(cord.associations, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - narrative_report/results/cord.associations.narrative_2022-03-18.txt", sep ="\t", 
+            col.names = T, row.names=F, quote=F)
+
+# Age 7 associations #
+for(i in 1:nrow(new.results.fdr)){
+  print(i)
+  if(i == 1){f7.associations <- data.frame()}
+  temp <- new.results.fdr[i,]
+  age7 <- f7.beta.cor[,colnames(f7.beta.cor) == temp$CpG]
+  
+  #making complete cases with the correct adversity and year <= 7
+  b <- colnames(beast)[grep(paste0("^", temp$Adversity), colnames(beast))]
+  recency.vec <- gsub("m", "", gsub(paste0(temp$Adversity,"_"),"",b))
+  recency.vec[grep("y",recency.vec)] <- as.numeric(gsub("y","",
+                                                          recency.vec[grep("y",recency.vec)]))*12
+  recency.vec <- as.numeric(recency.vec)/12
+  
+  if(sum(recency.vec > 7) >0) { 
+    b <- b[-which(recency.vec>7)]
+    recency.vec <- recency.vec[-which(recency.vec>7)]
+  }
+  
+  exposure <- beast[,colnames(beast) %in% c("cidB1471", covars, b)]
+  exposure <- exposure[match(f7.samples$ALN, exposure$cidB1471),]
+  age7 <- age7[complete.cases(exposure)]
+  exposure <- exposure[complete.cases(exposure),]
+  
+  if(temp$Variable_Name == "recency"){
+    exp <- do.call("cbind", lapply(exposure[, colnames(exposure) %in% b], 
+                                   function(x) as.numeric(as.character(x))))
+    exposure <- exposure %>% 
+      mutate(accumulation = rowSums(exp)) %>% 
+      mutate(ever = ifelse(accumulation > 0, 1, 0))
+    exposure$recency <-  rowSums(exp %*% diag(recency.vec))
+    
+    colnames(exposure)[colnames(exposure)=="recency"] <- "exposure"
+    rm(b, exp, recency.vec)
+  }
+  
+  else{
+  colnames(exposure)[colnames(exposure) == temp$Variable_Name] <- "exposure"
+  }
+  
+  res <-tidy(lm(age7 ~ exposure + ed_momgest +WHITE + Female + 
+                  mom_birthage + ppregnum + birthweight +
+                  sustained.smoke, data = exposure))
+  
+  a <- data.frame(Cpg = temp$CpG,
+             Variable_Name = temp$Variable_Name, 
+             Model = temp$Method,
+             Timing = temp$Timing,
+             Adversity = temp$Adversity, 
+             p.value = res$p.value[2],
+             estimate = res$estimate[2],
+             statistic = res$statistic[2],
+             std.error = res$std.error[2],
+             beta.unexp = mean(age7[which(exposure$exposure==0)]),
+             beta.exp = mean(age7[which(exposure$exposure>0)]))
+  a$delta <- a$beta.exp - a$beta.unexp
+  
+  f7.associations <- rbind(f7.associations, a)
+  
+  rm(res, a, b, exposure, age7, temp)
+}
+head(f7.associations)
+f7.associations$FDR <- p.adjust(f7.associations$p.value, method = "BH")
+f7.associations$bonf <- p.adjust(f7.associations$p.value, method = "bonferroni")
+sum(f7.associations$p.value<0.05) #3
+sum(f7.associations$FDR<0.05) #0
+sum(f7.associations$bonf<0.05) #0
+
+save(f7.associations, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - narrative_report/results/age7.associations.narrative_2022-03-18.Rdata")
+write.table(cord.associations, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - narrative_report/results/age7.associations.narrative_2022-03-18.txt", sep ="\t", 
+            col.names = T, row.names=F, quote=F)
+
+rm(beast, covars, 
+   f7.beta.cor, f7.samples,
+   cord.beta.cor, cord.samples,
+   cord.associations, f7.associations)
+
+```
+3 loci with p<0.05 and 0 at FDR<0.05
+
+*Compare blood and brain for top loci*
+```{r}
+#had to grab these manually from https://epigenetics.essex.ac.uk/bloodbrain/
+corrs <- gdata::read.xls("~/Dropbox (Partners HealthCare)/Narrative/results/brain_blood_corr_hannon_manual_top.xlsx")
+head(corrs)
+corrs <- corrs[corrs$Probe %in% new.results.fdr$CpG,]
+dim(corrs)
+summary(corrs[,2:5])
+colMeans(corrs[,2:5])
+colMeans(corrs[, 2:5])
+colMedians(corrs[, 2:5])
+colMeans(abs(corrs[rowMeans(corrs[,2:5])>0, 2:5]))
+sum(rowMeans(corrs[,2:5])>0) #32/48
+colMeans((corrs[rowMeans(corrs[,2:5])<0, 2:5]))
+
+corrs.old <- read.csv("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/CpG Methlyation R Values.csv")
+corrs.old <- corrs.old[corrs.old$Probe %in% old.results.fdr$CpG,]
+dim(corrs.old) #27
+colMeans(corrs.old[,2:5])
+colMeans(abs(corrs.old[,2:5]))
+sum(rowMeans(corrs.old[,2:5])>0) #18/27
+max(corrs.old[,2])
+
+rm(corrs, corrs.old)
+```
+Low correlation between blood and brain for most loci
+
+*Regulatory elements*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/featureData.Rdata", verbose=T)
+featureData$CHR37 <- as.character(featureData$CHR37)
+featureData$COORDINATE_37 <- as.character(featureData$COORDINATE_37)
+fData <- featureData[featureData$TargetID %in% results$CpG, ]
+dim(fData) #440257 CpGs
+rm(featureData)
+
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+data(Other)
+data(Islands.UCSC)
+
+fdr2 <- new.results.fdr %>% dplyr::select(CpG)
+anno.fdr <- Other[fdr2$CpG, ]
+cgi.fdr <- Islands.UCSC[fdr2$CpG, ]
+cgi.fdr$CpG <- rownames(cgi.fdr)
+
+fdr2 <- merge(fdr2, anno.fdr[, c(10, 13, 14)], by.x="CpG", by.y="row.names")
+fdr2 <- merge(fdr2, cgi.fdr, by="CpG")
+
+## promoter & enhancer plot 
+fdr2$Enhancer2 <- ifelse(fdr2$Enhancer == TRUE, 1, 0)
+fdr2$Promoter.Assoc <- ifelse(fdr2$Regulatory_Feature_Group %in% 
+                                c("Promoter_Associated", "Promoter_Associated_Cell_type_specific"), 1, 0)
+anno.autosome <- Other[fData$TargetID, ]
+anno.autosome <- anno.autosome[!is.na(rownames(anno.autosome)), ]
+apply(anno.autosome[, c(10, 13, 14)], 2, table)
+
+cgi.auto <- Islands.UCSC[fData$TargetID, ]
+cgi.auto <- cgi.auto[!is.na(rownames(cgi.auto)), ]
+table(cgi.auto[, 2])
+
+# merge:
+fData2 <- merge(fData, anno.autosome[, c(10, 13, 14)], by.x="TargetID", by.y="row.names")
+fData2 <- as.data.frame(fData2@listData)
+fData2 <- merge(fData2, cgi.auto, by.x="TargetID", by.y="row.names")
+fData2 <- as.data.frame(fData2@listData)
+rm(fData, anno.autosome, cgi.auto, Other, Islands.UCSC)
+
+fData2$Enhancer2 <- ifelse(fData2$Enhancer == TRUE, 1, 0)
+fData2$Promoter.Assoc <- ifelse(fData2$Regulatory_Feature_Group %in% 
+                                  c("Promoter_Associated", "Promoter_Associated_Cell_type_specific"), 1, 0)
+apply(fData2[, 22:23], 2, table)
+
+my.chisq.test <- function(x, y){
+  p.1 <- unname(table(x))/sum(unname(table(x)))
+  p.2 <- unname(table(y))/sum(unname(table(y)))
+  
+  ch <- chisq.test(unname(table(x)), p=p.2)
+    
+  return(c(FDR=p.1, fData=p.2, ch$stat, P=ch$p.val))
+  
+}
+
+my.chisq.test(x=fdr2$Enhancer2, y=fData2$Enhancer2)
+
+#       FDR1         FDR2       fData1       fData2    X-squared            P 
+# 0.586956522  0.413043478  0.784366858  0.215633142 10.598950521  0.001131519
+
+ch1<- my.chisq.test(x=fdr2$Promoter.Assoc, y=fData2$Promoter.Assoc)
+#     FDR1      FDR2    fData1    fData2 X-squared         P 
+#0.8695652 0.1304348 0.7883895 0.2116105 1.8169040 0.1776822
+
+ch2<- my.chisq.test(x = fdr2$DHS, y= fData2$DHS)
+#      FDR1       FDR2     fData1     fData2  X-squared          P 
+#0.93478261 0.06521739 0.87318771 0.12681229 1.57608053 0.20932617 
+
+ch3 <- my.chisq.test(x=fdr2$Relation_to_Island, y=fData2$Relation_to_Island)
+#        FDR1         FDR2         FDR3         FDR4         FDR5         FDR6       fData1       fData2 
+#4.347826e-02 4.347826e-02 1.086957e-01 6.086957e-01 8.695652e-02 1.086957e-01 3.231612e-01 4.873517e-02 
+#      fData3       fData4       fData5       fData6    X-squared            P 
+#1.313619e-01 3.504067e-01 4.361089e-02 1.027241e-01 2.209607e+01 5.020309e-04 
+
+d1 <- cbind.data.frame(probeset=factor(rep(c("FDR-significant sites", 
+                                             "All sites tested"), 2), 
+                                       levels=c("FDR-significant sites", 
+                                                "All sites tested")), 
+                       annot=factor(c(rep("Promoter", 2), rep("Enhancer", 2)),
+                                    levels=c("Promoter", "Enhancer")), 
+                       prop=c(ch2[c(2, 4)], ch1[c(2, 4)]))
+
+p1 <- ggplot(d1, aes(x=annot, y=prop, group=probeset)) + 
+  geom_bar(stat="identity", aes(fill=probeset), position = "dodge", width=0.7) + 
+  scale_fill_manual(values=c("steelblue4", "steelblue1")) + 
+  labs(x=NULL, y="Proportion") + 
+  theme_bw() + 
+  ggtitle("A")+
+  theme(legend.title = element_blank(), 
+        panel.grid.major.x = element_blank(), 
+        text = element_text(family = "Gill Sans", size = 22))
+p1
+# next:
+fdr = table(fdr2$Relation_to_Island)/sum(unname(table(fdr2$Relation_to_Island)))
+rest = table(fData2$Relation_to_Island)/sum(unname(table(fData2$Relation_to_Island)))
+
+d2 <- cbind.data.frame(probeset=factor(c(rep("FDR-significant sites", 6), 
+                                         rep("All sites tested", 6)), 
+                                       levels=c("FDR-significant sites", 
+                                                "All sites tested")), 
+                       annot=factor(c(names(fdr), names(rest)),
+                                    levels=c("OpenSea", "N_Shelf", "N_Shore", 
+                                             "Island", "S_Shore", "S_Shelf"),
+                                    labels=c("Open Sea", "N. Shelf", "N. Shore", 
+                                             "Island", "S. Shore", "S. Shelf")), 
+                       prop=c(unname(fdr), unname(rest)))
+rm(fdr, rest)
+
+p2 <- ggplot(d2, aes(x=annot, y=prop, group=probeset)) + 
+  geom_bar(stat="identity", aes(fill=probeset), position = "dodge", width=0.7) + 
+  scale_fill_manual(values=c("aquamarine4", "aquamarine2")) + 
+  labs(x=NULL, y="Proportion") + 
+  theme_bw() + 
+  ggtitle("B") + 
+  theme(legend.title = element_blank(), 
+        panel.grid.major.x = element_blank(), 
+        text = element_text(family = "Gill Sans", size = 22))
+p2
+
+grid.arrange(p1, p2, ncol = 1)
+  
+
+rm(Other, Islands.UCSC, fdr2, anno.fdr, cgi.fdr, d1, d2, 
+   fData2, my.chisq.test,p1, p2, ch1, ch2, ch3)
+
+```
+Slightly less in promoters, more in enhancers, differences in CpG island location
+
+*Annotated table* 
+```{r}
+fdr.results <- new.results.fdr
+
+library(FDb.InfiniumMethylation.hg19)
+library(tibble)
+load("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/featureData.Rdata", verbose=T)
+hm450 <- get450k()
+probes <- hm450[fdr.results$CpG]
+x <- getNearestGene(probes)
+summary(x$distance)
+# Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+# 0.0       0.0       0.0   10947.1     389.8 1095065.0 
+x <- x %>% tibble::rownames_to_column("CpG")
+
+fdr.annot <- left_join(fdr.results,x, by =  "CpG")
+
+# UCSC:
+fData <- featureData[row.names(featureData) %in% fdr.results$CpG, ]
+rm(featureData)
+fData <- fData %>% tibble::rownames_to_column("CpG")
+fdr.annot <- left_join(fdr.annot, fData, by = "CpG")
+
+## clean up the format 
+fdr.annot <- fdr.annot %>% 
+  dplyr::select(one_of(c(colnames(fdr.results), "CHR37", "COORDINATE_37", "nearestGeneSymbol", "distance", "RELATION_TO_UCSC_CPG_ISLAND"))) %>% 
+  dplyr::rename(Chr = CHR37, Coordinate = COORDINATE_37, NearestGene = nearestGeneSymbol, Relation_to_CGI = RELATION_TO_UCSC_CPG_ISLAND) ## lookin' good 
+
+fdr.annot$Chr <- unlist(fdr.annot$Chr)
+fdr.annot$Coordinate <- unlist(fdr.annot$Coordinate)
+# remove those further than 300 bp 
+fdr.annot <- fdr.annot %>% 
+  mutate(NearestGene = ifelse(distance > 300000, NA, NearestGene)) %>% 
+  mutate(distance = ifelse(distance > 300000, NA, distance))
+lapply(fdr.annot, class)
+sum(is.na(fdr.annot$NearestGene)) # two did not have a gene annotated; that's okay 
+save(fdr.annot, 
+     file = "~/Dropbox (Partners HealthCare)/Narrative/new.fdr.hits.annot_20210403.Rdata")
+
+## add whether it's a noisy probe identified by Naeem et al. 
+naeem <- read_csv("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/FilteringCpGs_Naeem.csv") %>% filter(`Flag(discard/keep)` == "discard")
+## included the following 2 files: 48639-non-specific-probes-Illumina450k.xlsx, 48640-polymorphic-CpGs-Illumina450k.xlsx
+chen <- read_csv("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/chen-noisyprobes/chen2013_noisyprobes.csv", 
+                 col_names = "Probe")
+chen <- unique(chen) # n = 91698 
+dim(chen)
+
+fdr.annot <- fdr.annot %>% 
+  mutate(Noisy.inNaeem = ifelse(CpG %in% naeem$probe, 1, 0),
+         Noisy.inChen = ifelse(CpG %in% chen$Probe, 1, 0))
+rm(naeem, chen)
+
+## additional functional annotation 
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+## Enhancer or promoter
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+data(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+annotation.table = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+annotation.table <- annotation.table[row.names(annotation.table) %in% fdr.annot$CpG,]
+
+annotation.table <- as.data.frame(annotation.table) %>% tibble::rownames_to_column("CpG")
+colnames(annotation.table)
+## it seems like the relation to island annotated here might be more accurate 
+fdr.annot2 <- left_join(fdr.annot, annotation.table, by = "CpG")
+
+table(fdr.annot2$Relation_to_Island)
+
+# promoter: Promoter_Associated or Promoter_Associated_Cell_type_specific
+fdr.annot2 <- fdr.annot2 %>% 
+  mutate(Relation_to_CGI = Relation_to_Island,
+         Enhancer = ifelse(Enhancer == TRUE, 1, 0),
+         Promoter = ifelse(grepl("^Promoter", Regulatory_Feature_Group), 1, 0))
+
+# select columns we'll need in the table 
+fdr.annot2 <- fdr.annot2 %>% 
+  dplyr::select(CpG, Adversity, Model, Timing, R2, P.value, FDR, bonf,
+                Chr, Coordinate, NearestGene, distance, 
+                Noisy.inNaeem, Noisy.inChen, Relation_to_CGI, Enhancer, Promoter)
+fdr.annot2
+# export a list of FDR CpGs for eFORGE lookups 
+write.table(fdr.annot2$CpG, "~/Dropbox (Partners HealthCare)/Narrative/new_FDR_CpGs_eForge_20210403.txt", 
+            row.names = F, quote = FALSE)
+
+# columns O:T
+# eFORGE: http://eforge.cs.ucl.ac.uk/
+# paste in the list of FDR significant CpGs
+# Consolidated Roadmap Epigenomics - DHS
+# Consolidated Roadmap Epigenomics - All H3
+# ENCODE - DHS
+# followng Tom's code: Tom_Rcode_20181125_eFORGE func annot.R
+saveDir <- "~/Dropbox (Partners HealthCare)/Narrative/eForge"
+annots <- cbind.data.frame(probeset = c(rep("newFDR", 3)), 
+                           annotset = c("erc2-DHS", "erc2-H3-all", "encode"))
+
+# function to test whether there were any enrichments in any cell type were significant 
+# after multiple corrections
+# (actually pulling out what is most significant enrichment across each dataset)
+check.sig <- function(x){
+  # load data
+  d <- read.delim(file=file.path(saveDir, 
+                                 paste0(annots[x, 1], 
+                                        ".450k.", annots[x, 2], 
+                                        ".chart.tsv")),
+                  sep="\t", header=T, stringsAsFactors = F)
+  # subset to signficant associations
+  d.sig <- d[d$Qvalue < 0.05, ]
+  # pull out most significant association
+  best <- d[which.min(d$Pvalue), ]
+  # return all sig and and most sig
+  return(list(d.sig$Tissue, d.sig$Cell, best$Tissue, best$Cell, best$Pvalue))
+}
+q <- sapply(c(1:3), check.sig)
+q #nothing at q<0.05; strongest association in E033 Primary T cells from cord blood (p= 0.00842)
+
+
+# At some point we decided to report whether each CpG was within 1000bp of each of these regulatory marks
+# in any of the cell/tissue types, and whether each CpG was within 1000bp of each of these marks in any 
+# neuronal cells/brain tissue, and here is that function.
+func <- function(x){
+  d <- read.delim(file=file.path(saveDir, 
+                                 paste0(annots[x, 1], 
+                                        ".450k.", annots[x, 2], 
+                                        ".chart.tsv")),
+                  sep="\t", header=T, stringsAsFactors = F)
+  
+  d.anycell <- unique(unlist(strsplit(d$Probe, "[,]")))
+  
+  d.brain <- d[d$Cell %in% 
+                 c("E007 H1 Derived Neuronal Progenitor Cultured Cells", 
+                   "E081 Fetal Brain Male", 
+                   "E082 Fetal Brain Female"), ]
+  d.braincell <- unique(unlist(strsplit(d.brain$Probe, "[,]")))
+  
+  return(list(d.anycell, d.braincell))
+}
+r <- lapply(c(1, 2), func)
+
+# Cells named differently in ENCODE, so YIWEN made a separate function:
+func2 <- function(x){
+  d <- read.delim(file=file.path(saveDir, 
+                                 paste0(annots[x, 1], 
+                                        ".450k.", annots[x, 2], 
+                                        ".chart.tsv")),
+                  sep="\t", header=T, stringsAsFactors = F)
+  
+  d.anycell <- unique(unlist(strsplit(d$Probe, "[,]")))
+  
+  d.brain <- d[d$Tissue %in% 
+                 c("Brain", "Brain hippocampus", "Cerebellar"), ]
+  d.braincell <- unique(unlist(strsplit(d.brain$Probe, "[,]")))
+  
+  return(list(d.anycell, d.braincell))
+}
+# ENCODE result
+s <- lapply(3, func2)
+
+## add the information to FDR table
+fdr.annot2 <- fdr.annot2 %>% 
+  mutate(ERC_DHS_any.cell = ifelse(CpG %in% r[[1]][[1]], 1, 0),
+         ERC_DHS_brain.cell = ifelse(CpG %in% r[[1]][[2]], 1, 0),
+         ERC_H3.all_any.cell = ifelse(CpG %in% r[[2]][[1]], 1, 0),
+         ERC_H3.all_brain.cell = ifelse(CpG %in% r[[2]][[2]], 1, 0),
+         ENCODE_DHS_any.cell = ifelse(CpG %in% s[[1]][[1]], 1, 0),
+         ENCODE_DHS_brain.cell = ifelse(CpG %in% s[[1]][[2]], 1, 0)
+         )
+
+apply(fdr.annot2[, 17:22], 2, table) # sanity check
+
+
+save(fdr.annot2, file = "~/Dropbox (Partners HealthCare)/Narrative/newFDR_annot_table.Rdata")
+write.table(fdr.annot2, 
+            file ="~/Dropbox (Partners HealthCare)/Narrative/newFDR_annot_table_20210403.txt",
+            sep="\t", quote=F, row.names = F, col.names=T)
+
+rm(annots, check.sig, func, func2, q, r,s, saveDir, fdr.annot2)
+```
+Strongest eForge association in E033 Primary T cells from cord blood (p= 0.00842) in erc2-H3-all
+
+*Intolerance to LOF*
+```{r}
+exac <- read.delim("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/forweb_cleaned_exac_r03_march16_z_data_pLI.txt",
+                   sep="\t", header=T)
+hist(exac$pLI)
+exac$gene <- as.character(levels(exac$gene))[exac$gene]
+
+load("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/featureData.Rdata", verbose=T)
+featureData$CHR37 <- as.character(featureData$CHR37)
+featureData$COORDINATE_37 <- as.character(featureData$COORDINATE_37)
+fData <- featureData[featureData$TargetID %in% results$CpG, ]
+dim(fData) #440257 CpGs
+rm(featureData)
+
+# annotate to nearestGene:
+library(FDb.InfiniumMethylation.hg19)
+hm450 <- get450k()
+probes <- hm450[unique(fData$TargetID)]
+x <- getNearestGene(probes)
+# since some are beyond 300 kb, need to remove annotations:
+x <- x[x$distance <= 300000, ]
+length(unique(x$nearestGeneSymbol))
+#[1] 19532
+
+
+exac <- exac[exac$gene %in% x$nearestGeneSymbol, ]
+nrow(exac)
+#[1] 15552
+rm(fData, probes, hm450, x, hm450.controls, seqinfo.hg19)
+
+
+load("~/Dropbox (Partners HealthCare)/Narrative/newFDR_annot_table.Rdata")
+exac$fdr.gene.flag <- ifelse(exac$gene %in% fdr.annot2$NearestGene, 1, 0)
+unique(fdr.annot2$NearestGene)
+table(exac$fdr.gene.flag)
+t.test(pLI ~ fdr.gene.flag, data=exac) #p-value = 0.5606
+fdr.annot2[fdr.annot2$NearestGene %in% exac$gene[exac$pLI>0.9 & exac$fdr.gene.flag ==1],]
+head(exac)
+
+# probably better to test with permutations:
+# following (http://faculty.washington.edu/kenrice/sisg/SISG-08-06.pdf)
+# true group difference:
+(group.diff <- mean(exac$pLI[exac$fdr.gene.flag==1]) - 
+    mean(exac$pLI[exac$fdr.gene.flag==0]))
+# [1] 0.04065521
+# function to get mean for single permutation test:
+one.test <- function(x,y) {
+  xstar<-sample(x)
+  mean(y[xstar==1])-mean(y[xstar==0])
+}
+one.test(exac$fdr.gene.flag, exac$pLI)
+#[1] -0.002332741
+# repeat 10k times:
+many.perms <- replicate(10000, one.test(exac$fdr.gene.flag, exac$pLI))
+# how many means were more extreme than the one we observed?
+mean(abs(many.perms) > abs(group.diff))
+#[1] 0.5477
+
+#plot:
+hist(many.perms, xlim=c(-abs(group.diff), abs(group.diff)))
+abline(v=group.diff, lwd=2, col="purple")
+
+exac$fdr.gene.flag <- factor(exac$fdr.gene.flag, 
+                             levels=c("1", "0"), 
+                             labels=c("Genes annotated to\nFDR-significant sites", 
+                                      "Genes annotated to\nremaining sites tested"))
+ggplot(exac, aes(x=fdr.gene.flag, y=pLI, group=fdr.gene.flag)) + 
+  geom_violin(aes(fill=fdr.gene.flag), show.legend = F, alpha=0.8) + 
+  scale_fill_manual(values=c("firebrick", "firebrick1")) + 
+  stat_summary(fun=mean, geom="point", size=3, colour="black") + 
+  labs(x=NULL, y="pLI") + 
+  theme_bw() + 
+  theme(panel.grid.major.x = element_blank(), 
+        text = element_text(family = "Gill Sans", size = 22))
+
+ggplot(exac, aes(x=fdr.gene.flag, y=pLI, group=fdr.gene.flag)) + 
+  geom_violin(aes(fill=fdr.gene.flag), show.legend = F, alpha=0.8) + 
+  geom_jitter(data = exac[exac$fdr.gene.flag=="Genes annotated to\nFDR-significant sites",], 
+              width = 0.1, shape = 3, size =3)+
+  scale_fill_manual(values=c("firebrick", "firebrick1")) + 
+  stat_summary(fun=mean, geom="point", size=3, colour="black") + 
+  labs(x=NULL, y="pLI") + 
+  theme_bw() + 
+  theme(panel.grid.major.x = element_blank(), 
+        text = element_text(family = "Gill Sans", size = 22))
+
+rm(exac, many.perms, one.test, p, group.diff)
+
+```
+Significant loci were _not_ more constrained than by random chance (p=0.55)
+
+*Biological processes*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Narrative/results/newFDR_annot_table.Rdata")
+
+fdr.genes <- unique(fdr.annot2$NearestGene[!is.na(fdr.annot2$NearestGene)]) # 45 unique genes
+
+write.table(fdr.genes, "~/Dropbox (Partners HealthCare)/Narrative/newFDR.genesforDAVID.txt", 
+            quote = FALSE, sep = "\n", row.names = F)
+
+##perform GOseq, correcting for # CpGs/gene:
+library(goseq)
+library(FDb.InfiniumMethylation.hg19)
+library(plyr)
+library(dplyr)
+library(tidyr)
+
+# count # CpGs/gene:
+# load all CpGs
+load(file="~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/featureData.Rdata")
+# subset to autosomal loci:
+fData <- droplevels(featureData[featureData$TargetID %in% results$CpG, ])
+rm(featureData)
+hm450 <- get450k()
+probes <- hm450[unique(fData$TargetID)]
+x <- getNearestTSS(probes)
+length(unique(x$nearestGeneSymbol))
+#[1] 21780
+
+# get counts for each gene:
+gene.counts <- x %>% group_by(nearestGeneSymbol) %>%
+  dplyr::summarize(n=n())
+
+cpgs.per.gene <- gene.counts$n
+names(cpgs.per.gene) <- gene.counts$nearestGeneSymbol
+rm(gene.counts)
+
+y <- rep(0, length(cpgs.per.gene))
+names(y) <- names(cpgs.per.gene)
+rm(x, fData, hm450.controls, hm450, probes, seqinfo.hg19)
+y[names(y) %in% fdr.annot2$NearestGene] <- 1
+sum(y)
+#[1] 45
+length(y)
+#[1] 21780
+
+pwf=nullp(DEgenes=y, "hg19", "geneSymbol", bias.data=cpgs.per.gene)
+head(pwf)
+
+GO.wall=goseq(pwf, "hg19", "geneSymbol")
+nrow(GO.wall)
+#[1] 22070
+nrow(GO.wall[GO.wall$over_represented_pvalue < 0.05, ])
+#[1] 342
+## IMPORTANT: these are uncorrected p-values.
+
+# calc FDR-adjusted p-values:
+GO.wall$qValues = p.adjust(GO.wall$over_represented_pvalue, method="BH")
+nrow(GO.wall[GO.wall$qValues < 0.05, ])
+#[1] 0
+## so none survive correction.
+
+# export background list of genes for DAVID:
+background <- names(y)
+# need EntrezIDs:
+library(org.Hs.eg.db)
+library(reshape2)
+xx <- as.list(org.Hs.egALIAS2EG)
+xx <- xx[!is.na(xx)]
+xx <- xx[background]
+xx <- melt(xx)
+names(xx) <- c("EntrezID", "Symbol")
+xx$EntrezID <- as.character(levels(xx$EntrezID))[xx$EntrezID]
+dim(xx)
+#[1] 22905     2
+length(unique(xx$Symbol))
+#[1] 21780
+
+xx <- xx[!duplicated(xx$EntrezID), ]
+dim(xx)
+#[1] 21949     2
+length(unique(xx$Symbol))
+#[1] 21243
+length(unique(xx$EntrezID))
+#[1] 21949
+## a few Symbols have additional EntrezIDs - probably psuedogenes that will be dropped.
+
+write.table(xx$EntrezID, file="~/Dropbox (Partners HealthCare)/Narrative/newFDR_DAVID_gene_background_20210403.txt", 
+            sep=",", row.names=F, col.names=F, quote=F)
+
+## RUN DAVID https://david.ncifcrf.gov/summary.jsp
+df <-read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Narrative/results/DAVID/DAVID_GO_newFDR_loci_clusters_20210403.csv",
+              header=F, stringsAsFactors = F)[,-4]
+head(df)
+
+
+df$cluster.no <- 1:14
+df$enrich.score <- as.numeric(sub("Enrichment Score: ", "", df$V2))
+cluster.name <- strsplit(df$V3, "~")
+df$cluster.name <- unlist(lapply(cluster.name, function(x) x[2]))
+
+df <- df[, c(4:6)]
+df$cluster.x <- 14:1
+
+firstup <- function(x) {
+  substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+  x
+}
+df$cluster.name <- sapply(df$cluster.name, firstup)
+df$enrich.score
+ggplot(df, aes(x=cluster.x, y=enrich.score)) + 
+  geom_bar(stat="identity", fill="dodgerblue3", alpha=0.7) + 
+  geom_hline(yintercept = -log10(0.05), color="red", lty=3, lwd=1.2) + 
+  scale_x_discrete(limits=c(1:14),
+                   labels=rev(df$cluster.name)) + # for some reason have to reverse this
+  labs(x=NULL, y="Enrichment Score (-log(P))") + 
+  coord_flip() + 
+  theme_bw() + 
+  theme(panel.grid=element_blank(), 
+        text = element_text(family = "Gill Sans", size = 12))
+
+rm(df, fdr.genes, cluster.name, background, cpgs.per.gene, firstup,
+   GO.wall,pwf,xx,y)
+```
+Glucose transport as only GO term coming out of DAVID
+
+*Chi-squared of hypotheses selected, hypo/hyper*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/crosswalk_critical_periods_and_timepoints_ARIES.Rdata", verbose=T)
+
+#reformat
+cw <- cw %>% 
+  mutate(var = ifelse(grepl("faminst", var), paste0("r_", var), as.character(var)),
+         adversity = ifelse(grepl("faminst", adversity), paste0("r_", adversity), 
+                            as.character(adversity))) %>% 
+  filter(adversity != "eitherlaw") %>% 
+  mutate(adversity = as.character(adversity),
+         firsthypo = as.character(firsthypo),
+         time3 = round(measurement.time/12,2)) 
+
+## add time period labels
+cw <- cw %>% 
+  mutate(timeclass1 = ifelse(time3 < 3, "very\nearly\nchildhood", 
+                             ifelse(time3 >=3 & time3 < 6, 
+                                    "early\nchildhood", 
+                                    ifelse(time3 >=6,
+                                           "middle\nchild", 
+                                           time3))))
+head(fdr.annot2)
+fdr.annot2$hypo <- paste(fdr.annot2$Adversity, fdr.annot2$Model, sep = "_")
+df <- left_join(fdr.annot2, cw, by = c("hypo" = "var"))
+df$timeclass1 <- ifelse(is.na(df$timeclass1), df$hypo, df$timeclass1)
+
+df %>% 
+  group_by(timeclass1) %>% 
+  dplyr::summarise(N=n())
+
+h <- table(df$measurement.time)
+h
+
+h <- as.data.frame(h)
+
+j <- table(cw$measurement.time)
+j
+
+j <- as.data.frame(j)
+sum(j$Freq)
+
+round(48 * j$Freq/sum(j$Freq), 2)
+
+j2 <- merge(j, h, by="Var1", all.x=T)
+names(j2)[3] <- "obs"
+j2$obs[is.na(j2$obs)] <- 0
+j2
+
+# add accum and recency:
+a <- c("accumulation", 7,0)
+r <- c("recency", 7, 1)
+
+j3 <- matrix(NA, nrow=15, ncol=3)
+j3[1:13, ] <- as.matrix(j2)
+j3[14, ] <- a
+j3[15, ] <- r
+rm(a, r, h, j, j2)
+
+j3 <- as.data.frame(j3)
+names(j3) <- c("hypo", "number.times.tested", "observed")
+j3$number.times.tested <- as.numeric(as.character(j3$number.times.tested))
+j3$observed <- as.numeric(as.character(j3$observed))
+sum(j3$observed)
+
+j3$exp <- round(nrow(table1.SES.annot) * (j3$number.times.tested/sum(j3$number.times.tested)), 2)
+j3$exp.p <- j3$exp / sum(j3$exp)
+
+# Chi-squared test for given probabilities
+chisq.test(j3$observed, p = j3$exp.p)
+#X-squared = 769.04, df = 14, p-value < 2.2e-16
+
+
+# all critical periods vs. accum vs. recency:
+cr <- apply(j3[1:13, ], 2, function(x) sum(as.numeric(x)))
+cr
+j4 <- rbind.data.frame(c("critical", cr[-1]), 
+                       j3[14, ], j3[15, ])
+j4[, -1] <- lapply(j4[, -1], as.numeric)
+chisq.test(j4$observed, p = round(j4$exp.p, 4))
+#X-squared = 15.594, df = 2, p-value = 0.000411  ## THIS IS THE ONE
+
+rm(cr, cw, j3, j4, df)
+
+### 
+load("~/Dropbox (Partners HealthCare)/Narrative/results/age7.associations.narrative.Rdata", verbose=T)
+
+head(f7.associations)
+sum(f7.associations$estimate<0) #41/48
+chisq.test(c(41,5))
+#X-squared = 24.083, df = 1, p-value = 9.226e-07
+
+summary(abs(f7.associations$estimate[f7.associations$Variable_Name!= "recency"]))*100
+summary(abs(f7.associations$delta[f7.associations$Variable_Name!= "recency"]))*100
+
+f7.associations$estimate[f7.associations$Variable_Name == "recency"]*100
+
+results$FDR.2 <- p.adjust(results$P.value, method= "BH")
+results$bonf.2 <- p.adjust(results$P.value, method= "bonferroni")
+sum(results$FDR.2<=0.05) #8
+sum(results$bonf<=0.05) #8
+sum(results$bonf<=0.05 & results$FDR.2<=0.05) #8
+sum(results$bonf.2<=0.05) #1
+nrow(results)/7
+
+```
+
+*Figure 1*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/crosswalk_critical_periods_and_timepoints_ARIES.Rdata")
+# modify slightly because I recoded family instability
+# reformat
+
+cw <- cw %>% 
+  mutate(var = ifelse(grepl("faminst", var), paste0("r_", var), as.character(var)),
+         adversity = ifelse(grepl("faminst", adversity), paste0("r_", adversity), 
+                            as.character(adversity))) %>% 
+  filter(adversity != "eitherlaw") %>% 
+  dplyr::rename("1.hypo" = firsthypo) %>% 
+  mutate(adversity = as.character(adversity),
+         `1.hypo` = as.character(`1.hypo`),
+         time3 = round(measurement.time/12,2)) %>% 
+  dplyr::select(-adversity)
+
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - narrative_report/results/2022-03-14_update/newFDR_annot_table_2022-03-20.Rdata")
+
+fdr.annot2$hypo <- paste0(fdr.annot2$Adversity, "_", fdr.annot2$Model)
+fdr.annot2$hypo[grep("recency",fdr.annot2$hypo)] <- "recency"
+r2 <- left_join(fdr.annot2, cw, by = c("hypo" = "var"))
+
+r2$time3 <- ifelse(r2$`hypo` == "accumulation", "accumulation", r2$time3)
+r2$time3 <- ifelse(r2$`hypo` == "recency", "recency", r2$time3)
+
+r2 <- r2 %>% 
+  mutate(hypo.time.year = as.numeric(as.character(time3))) %>% 
+  mutate(timeclass1 = ifelse(hypo.time.year < 3, "vechild", 
+                             ifelse(hypo.time.year >=3 & hypo.time.year < 5, 
+                                    "echild", 
+                                    ifelse(hypo.time.year >=5,
+                                           "mchild", 
+                                           time3)))) %>% 
+  mutate(timeclass1 = ifelse(is.na(timeclass1), time3, timeclass1))
+
+table(r2$time3)
+table(r2$timeclass1)
+
+
+r2$timeclass <- recode_factor(r2$timeclass1, vechild = "Very\nearly\nchildhood", 
+                              echild = "Early\nchildhood", 
+                              mchild = "Middle\nchildhood",
+                              accumulation = "Accumulation",
+                              recency = "Recency")
+
+
+
+
+r2$facet.flag <- factor(ifelse(r2$timeclass %in% c("Accumulation", "Recency"), 
+                     "Additive", "Sensitive period"), 
+              levels=c("Sensitive period", "Additive"))
+
+
+df <- r2
+
+df <- df[order(df$Adversity, decreasing=F), ]
+
+df <- df %>% 
+  group_by(Adversity, timeclass, facet.flag) %>% 
+  summarise(obs = n())
+df$Adversity <- factor(df$Adversity, levels = c("parcruelty", "abuse", "mompsy",
+                                                "oneadult", "r_faminstability", 
+                                                "Fscore", "nbhqual"))
+
+
+adv.labels <- c("Caregiver physical or emotional abuse", 
+                "Sexual or physical abuse (by anyone)", 
+                "Maternal psychopathology", "One adult in the household", 
+                "Family instability", "Financial hardship", 
+                #"Parent legal problems", # dropped eitherlaw
+                "Neighborhood disadvantage")
+df$timeclass <- factor(df$timeclass, levels = c("Very\nearly\nchildhood", 
+                                                "Early\nchildhood", "Middle\nchildhood",
+                                                "Accumulation", "Recency"))
+
+ggplot(df, aes(x=timeclass, group=Adversity)) + 
+  geom_bar(stat='identity', aes(y= obs, fill=Adversity), ) +
+  #scale_fill_manual("Adversity", values=greys, labels=adv.labels) + 
+  #scale_fill_manual("Adversity", values=cbbPalette, labels=adv.labels) + 
+  #scale_fill_manual("Adversity", values=rainbowcols, labels=adv.labels) + 
+  scale_fill_discrete("Adversity", 
+                      labels=adv.labels, drop=F,
+                      guide = guide_legend(reverse=FALSE)) + 
+  facet_grid(.~ facet.flag, scales="free_x", space="free") + 
+  xlab("Theoretical Model") + 
+  ylab("Number of significant loci (FDR<0.05)") +
+  theme_bw() + theme(text = element_text(family = "Gill Sans"),
+                     axis.text.x = element_text(size=12, angle=45, hjust=1),
+                     axis.title.x = element_text(size=14),
+                     axis.text.y = element_text(size=12),
+                     axis.title.y = element_text(size=14),
+                     legend.text = element_text(size=12),
+                     legend.title = element_text(size=14),
+                     strip.text = element_text(size=14),
+                     panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     panel.background = element_blank())
+rm(adv.labels, cw, df, r2)
+```
+
+*Sensitivity mQTLs*
+```{r}
+F7.mqtl <- read_delim(file="~/Dropbox (Partners HealthCare)/Results Yiwen/BiologicalPsychiatry-2019/data/F7.ALL.M.tab",delim = "\t")
+
+# filter to Bonf CpGs:
+F7.mqtl.subset <- F7.mqtl %>% filter(gene %in% fdr.annot2$CpG)
+rm(F7.mqtl)
+# how many associations?
+nrow(F7.mqtl.subset) # 658 
+# how many CpGs?
+length(unique(F7.mqtl.subset$gene)) # 11
+# how many SNPs?
+length(unique(F7.mqtl.subset$SNP)) # 456
+## 456 SNPs associated with DNAm at 11 CpGs (presumably both cis and trans)
+
+# export SNP list to lookup in PLINK (not doing GRASP for this table yet)
+F7.mqtl.subset$SNP <- as.character(F7.mqtl.subset$SNP)
+F7.mqtl.subset$gene <- as.character(F7.mqtl.subset$gene)
+
+F7.mqtl.subset <- F7.mqtl.subset[order(F7.mqtl.subset$SNP), ]
+
+save(F7.mqtl.subset, file="~/Dropbox (Partners HealthCare)/Narrative/results/FDR-CpG_mQTLs_20210403.Rdata")
+
+
+```
+
+*Additional hypotheses - can't do this with selective inference*
+
+*Genome-wide*
+```{r}
+
+ggplot(results, aes(x = Adversity, fill = Timing))+
+  geom_bar(stat= "count", position = "dodge")+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)
+
+colnames(new.results.fdr)
+new.results.fdr$Type <- "Sensitive period"
+new.results.fdr$Type[new.results.fdr$Timing == "recency"] <- "Additive"
+new.results.fdr$Type <- factor(new.results.fdr$Type, levels = c("Sensitive period","Additive"))
+new.results.fdr$Timing.2 <- new.results.fdr$Timing
+new.results.fdr$Timing.2 <- gsub("^early","Early",new.results.fdr$Timing)
+new.results.fdr$Timing.2 <- gsub("very_early","Very early",new.results.fdr$Timing.2)
+new.results.fdr$Timing.2 <- gsub("middle","Middle",new.results.fdr$Timing.2)
+new.results.fdr$Timing.2 <- gsub("recency","Recency",new.results.fdr$Timing.2)
+new.results.fdr$Timing.2 <- factor(new.results.fdr$Timing.2, 
+                                   levels = c("Very early","Early","Middle","Accumulation","Recency"))
+
+ggplot(new.results.fdr[new.results.fdr$Type == "Sensitive period",], 
+             aes(x = Timing.2, fill = Adversity))+
+  geom_bar()+
+  facet_wrap(~Type)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)
+install.packages("farver")
+```
+
+*Supplemental figure, annotated*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Narrative/results/newFDR_annot_table.Rdata")
+head(fdr.annot2)
+write.table(fdr.annot2[,-c(5,6,7,8)], file = "~/Dropbox (Partners HealthCare)/Narrative/results/fdr.annot.table.txt",
+            col.names=T, row.names=T, quote= F, sep = "\t")
+```
+

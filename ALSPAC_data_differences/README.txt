@@ -29,3 +29,5 @@ In this folder, you can find the following information regarding our manuscript.
 	- 2. DD_EWAS_2021-08-20.Rmd - epigenome-wide analysis of childhood adversity or prenatal smoking
 	- 3. DD_SLCMA_process_2021-09-21.Rmd - concatenate results from the SLCMA scripts
 	- 4. DD_figures_2021-08-26.Rmd - final analysis and figures for publication
+	- 5. DD_supplemental_tables_2021-12-01.Rmd - supplemental tables
+	- 6. Narrative_report_analyses_clean_2022-06-28.Rmd - script for correspondence article
