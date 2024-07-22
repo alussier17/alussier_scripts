@@ -1,0 +1,128 @@
+---
+title: "2. runningMR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# this is the function we need to run the MR analyses
+source("YOURPATH/runMRfunction_2023-04-20.R")
+
+# here we read in the cpgs with which we would like to run MR
+setwd("YOURPATH/Analysis/")
+load("Data/cpgsMR_2023-02-21.Rdata")
+cpgsMR
+replicationLoci <- data.table::fread("MRreplication_loci_2023-04-24.csv")
+
+```
+
+# Automated mendelian randomization on DNAm and health outcomes
+
+## Function Description
+
+The `runMR` function can compute a causal estimate for DNAm at any specified CpG site, given the CpG site is available within the goDMC or mQTLdb databases, and for any health outcome, provided that relevant GWAS data exist for this health outcomes. Notably, it facilitates the **simultaneous analysis** of multiple CpG sites and outcomes, while using the two-sample Mendelian Randomization approach to estimate causal relationships between DNAm and health outcomes, Single nucleotide polymorphisms (SNPs) are used as instrumental variables. 
+
+The `runMR` function leverages the the TwoSampleMR package, streamlining the analytical process of TwoSampleMR by automating three key tasks: (1) enabling the analysis of multiple CpG sites, (2) accommodating multiple health outcomes, and (3) identifying instrumental variables effectively. 
+
+## Parameters
+
+- **cpgs**: Vector specifying all CpGs of interest. Must be provided.
+- **age**: Required for `mQTLdb` data. Specify as 'Childhood' for age 7 or 'Adolescent' for age 15.
+- **database**: The mQTL database to use ('mQTLdb', or 'goDMC'). Must be specified.
+- **clumpDMC**: Logical, indicates whether to perform clumping on DMC. Defaults to TRUE.
+- **psychopathologies**: Vector of outcomes to investigate. Defaults to an empty string. Ensure alignment with the GWAS summary statistics files.
+- **clumpMR**: Logical, set TRUE to exclude palindromic SNPs. Defaults to FALSE.
+- **cis.pvalue**: Threshold for cis-associated SNPs. Defaults to 1e-8.
+- **trans.pvalue**: Threshold for trans-associated SNPs. Defaults to 1e-14.
+- **clump.r2**: Exclusion threshold for SNPs with high linkage disequilibrium. Defaults to 0.01.
+- **transQTLs**: Logical, include transQTLs if TRUE. Defaults to FALSE.
+- **verbose**: Logical, controls the verbosity of output. Defaults to TRUE.
+- **multiVariate**: Logical, indicates multivariate analysis support. Currently not supported. Defaults to FALSE.
+- **largeFiles**: Logical, indicates if large files are to be used. Defaults to TRUE.
+- **skipOutcome**: Vector of outcomes to be skipped. Defaults to an empty string.
+- **name**: Naming convention for the output. Defaults to an empty string.
+- **path_to_stats**: Path to the GWAS summary statistics. Specified in the documentation.
+- **stat_summary**: RData file summarizing all outcomes. Use script '1. prepareMR' to generate this fle.
+- **outputdir**: Directory for saving output data. Specified in the documentation.
+
+## Important assumptions
+
+MR analysis is based on three critical assumptions:
+
+1. The SNPs used as IVs are strongly associated with DNAm.
+2. These SNPs are not associated with confounders of the DNAm-health outcome association.
+3. The SNPs influence health outcomes only through DNAm.
+
+Failure to meet these assumptions may result in biased causal estimates.
+
+## Return value
+
+The function returns an object containing the causal estimates of DNAm on health outcomes, along with diagnostics relevant to the MR analysis.
+
+## Example usage
+
+```{r}
+# Example invocation of the runMR function
+results <- runMR(cpgs = "cg00000029", age = "Childhood", database = "mQTLdb",
+                 psychopathologies = c("Schizophrenia", "Bipolar Disorder"),
+                 path_to_stats = "~/path/to/summstats/",
+                 stat_summary = "psych_stat_summary_2023-03-03.Rdata",
+                 outputdir = "~/path/to/results/")
+                 
+```
+
+# Application of runMR in paper
+
+*Main analyses*
+```{r}
+
+### AGE 7 ###
+runMR(cpgs = cpgsMR$CpG[cpgsMR$Age=="7"], 
+      database = "goDMC", clumpDMC = F,
+      age =7, cis.pvalue = 1e-8, transQTLs = T, trans.pvalue = 1e-14,
+      psychopathologies = c("all"), clumpMR = T,clump.r2 = 0.01,
+      name = "age7_loci_MRclump",
+      path_to_stats = "YOURPATH/GWAS/EUR (main)/",
+      stat_summary = "main_outcomes_2023-04-12.Rdata",
+      outputdir = "YOURPATH/Analysis/Results/"
+)
+
+### AGE 15 ###
+runMR(cpgs = cpgsMR$CpG[cpgsMR$Age=="15"], 
+      database = "goDMC", clumpDMC = F,
+      age =15, cis.pvalue = 1e-8, transQTLs = T, trans.pvalue = 1e-14,
+      psychopathologies = c("all"), clumpMR = T,clump.r2 = 0.01,
+      name = "age15_loci_MRclump",
+      path_to_stats = "YOURPATH/GWAS/EUR (main)/",
+      stat_summary = "main_outcomes_2023-04-12.Rdata",
+      outputdir = "YOURPATH/Analysis/Results/"
+)
+```
+
+*Replication set Marzi et al. 2019*
+```{r}
+runMR(cpgs = replicationLoci$CpG[replicationLoci$Adversity=="Childhood sexual victimization"], 
+      database = "goDMC", clumpDMC = F,
+      age =NA, cis.pvalue = 1e-8, transQTLs = T, trans.pvalue = 1e-14,
+      psychopathologies = c("all"), clumpMR = T,clump.r2 = 0.01,
+      name = "marzi_victimization",
+      path_to_stats = "YOURPATH/GWAS/EUR (main)/",
+      stat_summary = "main_outcomes_2023-04-19.Rdata",
+      outputdir = "YOURPATH/Analysis/Results/"
+)
+```
+
+*Replication set Ruehlmann et al. 2023*
+```{r}
+runMR(cpgs = unique(replicationLoci$CpG[replicationLoci$Source=="Ruehlmann_2023"]), 
+      database = "goDMC", clumpDMC = F,
+      age =NA, cis.pvalue = 1e-8, transQTLs = T, trans.pvalue = 1e-14,
+      psychopathologies = "all", 
+      clumpMR = T,clump.r2 = 0.01,
+      largeFiles = T, multiVariate = F,
+      name = "ruehlmann",
+      path_to_stats = "YOURPATH/GWAS/EUR (main)/",
+      stat_summary = "main_outcomes_2023-04-19.Rdata",
+      outputdir = "YOURPATH/Analysis/Results/"
+      )
+```

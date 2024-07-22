@@ -1,0 +1,310 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+*Setup*
+```{r}
+library(ggplot2)
+library(viridis)
+library(dplyr)
+library(TwoSampleMR)
+setwd("YOURPATH/Analysis/")
+
+# read in cpgs of interest, and annotate those cpgs
+load("YOURPATH/Analysis/Data/cpgsMR_2023-04-13.Rdata")
+load("YOURPATH/Annotations/featureData.Rdata")
+cpgsMR$UCSC_gene <- featureData$UCSC_REFGENE_NAME[match(cpgsMR$CpG, featureData$TargetID)]
+cpgsMR$UCSC_location <- featureData$UCSC_REFGENE_GROUP[match(cpgsMR$CpG, featureData$TargetID)]
+price <- data.table::fread("YOURPATH/Annotations/price_annotation_450k.txt")
+cpgsMR$Closest_TSS  <- price$Closest_TSS_gene_name[match(cpgsMR$CpG, price$ID)]
+rm(featureData, price)
+
+# also load in replication cpgs
+replicationLoci <- data.table::fread("MRreplication_loci_2023-04-24.csv")
+```
+
+*functions*
+```{r}
+
+#compile and load results
+compileMRfull <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullResults <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+      }
+    fullResults <- rbind(fullResults, results)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullResults)
+  
+}
+
+compileMRsingle <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullResultsSingle <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+      }
+    fullResultsSingle <- rbind(fullResultsSingle, resultsSingle)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullResultsSingle)
+
+}
+
+compileMRharm <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullHarm <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #skip ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+    }
+    harm <- harm[,c("SNP","exposure","outcome",
+                    "beta.exposure","se.exposure","pval.exposure",
+                    "beta.outcome", "se.outcome","pval.outcome"
+                    )]
+    
+    fullHarm <- rbind(fullHarm, harm)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullHarm)
+
+}
+
+compileMRpleiotropy <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullPleiotropy <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(pleiotropy) ==0){
+      cat("No pleiotropy data for ", i, "\n")
+      next
+      }
+    fullPleiotropy <- rbind(fullPleiotropy, pleiotropy)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullPleiotropy)
+  
+}
+
+compileMRheterogeneity <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullHeterogeneity <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(heterogeneity) ==0){
+      cat("No heterogeneity data for ", i, "\n")
+      next
+      }
+    fullHeterogeneity <- rbind(fullHeterogeneity, heterogeneity)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullHeterogeneity)
+  
+}
+
+#correct p-values for MRfull
+pCorrect <- function(df){
+  for(i in unique(df$outcome)){
+    if(i == unique(df$outcome)[1]){corrected <- data.frame()}
+    temp <- df[df$outcome==i, ]
+    temp$fdr <- NA
+    temp$bonf <- temp$pval * length(unique(temp$id.exposure))
+    temp$super.bonf <- temp$bonf * length(unique(df$outcome))
+    temp$bonf[temp$bonf>=1] <- 1.00
+    temp$super.bonf[temp$super.bonf>=1] <- 1.00
+    temp$fdr[temp$method %in% c("Wald ratio","Inverse variance weighted")] <- 
+      p.adjust(temp$pval[temp$method %in% c("Wald ratio","Inverse variance weighted")], method="BH")
+    corrected <- rbind(corrected, temp)
+  }
+  return(corrected)
+}
+
+
+#adding a combined analysis of all CpGs -> outcome
+compileMRfull <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){fullResults <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+      }
+    fullResults <- rbind(fullResults, results)
+    rm(results, resultsSingle, harm, outcome)
+  }
+  return(fullResults)
+  
+}
+
+allcpgMR <- function(name = "", byAdv = T){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){allcpgResults <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+    }
+    
+    #turning all CpGs into the exposure 
+    if(byAdv == T){
+      harm$exposure <- cpgsMR$Adversity[match(harm$exposure,cpgsMR$CpG)]
+      harm$id.exposure <- harm$exposure
+    }
+    else{
+    harm$exposure <- "all"
+    harm$id.exposure <- "all"
+    }
+    res <- mr(harm)
+    
+    allcpgResults <- rbind(allcpgResults, res)
+    rm(results, resultsSingle, harm, outcome, res)
+    }
+  return(allcpgResults)
+}
+
+
+leaveOneOutMR <- function(name = ""){
+  dirs <- list.dirs()
+  dirs <- dirs[grep(name, dirs)]
+  files <- list.files(dirs, pattern = "MRresults", full.names = T)
+  #i = files[1]
+  for(i in files){
+    if(i ==files[1]){leaveOneOut <- data.frame()}
+    outcome <- limma::strsplit2(limma::strsplit2(i,"/")[,3],"_")[,2]
+    load(i)
+    #exit for ones that didn't work
+    if(length(results) ==0){
+      cat("No data for ", i, "\n")
+      next
+    }
+    res <- TwoSampleMR::mr_leaveoneout(harm)
+    
+    leaveOneOut <- rbind(leaveOneOut, res)
+    rm(results, resultsSingle, harm, outcome, res)
+    }
+  return(leaveOneOut)
+}
+```
+
+*Compiling results for main analyses*
+```{r}
+### AGE 7 ###
+age7results <- compileMRfull("age7_loci_MRclump")
+age7results <- pCorrect(age7results)
+age7single <- compileMRsingle("age7_loci_MRclump")
+age7pleio <- compileMRpleiotropy("age7_loci_MRclump")
+age7het <- compileMRheterogeneity("age7_loci_MRclump")
+age7Leave1out <- leaveOneOutMR("age7_loci_MRclump")
+
+# get adjusted b
+# We assessed whether the role of DNAm (which possible results from adversity) was to increase or suppress adverse health outcome. Assuming that adversity always increases the odds for negative health outcomes, it would be expected that adversity-DNAm and DNAm-adverse health associations are in the same direction (positive adjusted b), which would indicate that the role of DNAm is to increase risk. If the direction is discordant (i.e., associations in opposite directions; negative adjusted b) may indicate that DNAm suppresses the effect of adversity on adverse health outcomes.  
+age7results$b_adj <- age7results$b * sign(cpgsMR$beta[match(age7results$id.exposure, cpgsMR$CpG)])
+age7het[age7het$exposure=="cg12023170" & age7het$outcome=="CKD",]
+
+save(age7results, age7single, age7pleio, age7het, age7Leave1out,
+     file ="Results/compiledMR_age7_2023-05-12.Rdata")
+
+### AGE 15 ###
+age15results <- compileMRfull("age15_loci_MRclump")
+age15results <- pCorrect(age15results)
+age15single <- compileMRsingle("age15_loci_MRclump")
+age15pleio <- compileMRpleiotropy("age15_loci_MRclump")
+age15het <- compileMRheterogeneity("age15_loci_MRclump")
+age15Leave1out <- leaveOneOutMR("age15_loci_MRclump")
+
+# get adjusted b
+age15results$b_adj <- age15results$b * sign(cpgsMR$beta[match(age15results$id.exposure, cpgsMR$CpG)])
+
+save(age15results, age15single, age15pleio, age15het, age15Leave1out,
+     file ="Results/compiledMR_age15_2023-05-12.Rdata")
+```
+
+*Replication set Marzi et al. 2019*
+```{r}
+# run functions
+marziresults <- compileMRfull("marzi_victimization")
+marziresults <- pCorrect(marziresults)
+marzisingle <- compileMRsingle("marzi_victimization")
+marzipleio <- compileMRpleiotropy("marzi_victimization")
+marzihet <- compileMRheterogeneity("marzi_victimization")
+marziLeave1out <- leaveOneOutMR("marzi_victimization")
+
+# get adjusted b
+marziLoci <- replicationLoci[replicationLoci$Adversity =="Childhood sexual victimization",]
+marziresults$b_adj <- marziresults$b *sign(marziLoci$beta[match(marziresults$id.exposure,
+                                                                marziLoci$CpG)])
+
+save(marziresults, marzisingle, marzipleio, marzihet, marzileave1out,
+     file ="Results/compiledMR_marzi_2023-05-12.Rdata")
+```
+
+*Replication set Ruehlmann et al. 2023*
+```{r}
+# run functions
+PACEresults <- compileMRfull("ruehlmann")
+PACEresults <- pCorrect(PACEresults)
+PACEsingle <- compileMRsingle("ruehlmann")
+PACEpleio <- compileMRpleiotropy("ruehlmann")
+PACEhet <- compileMRheterogeneity("ruehlmann")
+PACEleave1out <- leaveOneOutMR("ruehlmann")
+
+# get adjusted b
+PACELoci <- replicationLoci[replicationLoci$Adversity =="Prenatal",]
+PACEresults$b_adj <- PACEresults$b *sign(PACELoci$beta[match(PACEresults$id.exposure,
+                                                                PACELoci$CpG)])
+save(PACEresults, PACEsingle, PACEpleio, PACEhet,PACEleave1out,
+     file ="Results/compiledMR_PACE_2023-05-13.Rdata")
+```
+
+
