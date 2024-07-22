@@ -1,9 +1,9 @@
 # Prenatal Adversity Alters the Epigenetic Profile of the Prefrontal Cortex: Sexually Dimorphic Effects of Prenatal Alcohol Exposure and Food-related Stress  
 
 ## A. Manuscript
-  • Citation: 
+  • Citation: Lussier AA, Bodnar TS, Moksa M, Hirst M, Kobor MS, Weinberg J. Prenatal Adversity Alters the Epigenetic Profile of the Prefrontal   Cortex: Sexually Dimorphic Effects of Prenatal Alcohol Exposure and Food-Related Stress. Genes (Basel). 2021 Nov 9;12(11):1773. doi: 10.3390/genes12111773. PMID: 34828381; PMCID: PMC8622940.
   
-  • doi: 
+  • doi: https://doi.org/10.3390%2Fgenes12111773
   
   • GEO accession number: [GSE186840](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE186840)
   
