@@ -2,18 +2,18 @@
 
 # 1. Human epigenetics projects
 ## [Two-sample Mendelian Randomization of adversity-associated DNAm and health outcomes - American Journal of Epidemiology, 2024](/DNAm_MR_AJE)
-    1. Manuscripts
-    2. Scripts
+    A. Manuscripts
+    B. Scripts
 
 ## [Time-varying childhood adversity and DNA methylation at age 15 ALSPAC - Lancet Child & Adolescent Health, 2023](/adversity-DNAm)
-    1. Manuscripts
-    2. SLCMA scripts
-    3. Analaysis scripts
+    A. Manuscripts
+    B. SLCMA scripts
+    C. Analaysis scripts
 
 ## [Childhood adversity and DNA methylation at age 7 and impact of data version differences(ALSPAC) - Epigenetics, 2022](/ALSPAC_data_differences)
-    1. Manuscripts
-    2. SLCMA scripts
-    3. Analaysis scripts
+    A. Manuscripts
+    B. SLCMA scripts
+    C. Analaysis scripts
 
 ## [DNA methylation signature of human FASD (NeuroDevNet cohort) - Epigenetics & Chromatin, 2016](/DNAm_signature_FASD)
     A. Manuscript
@@ -32,6 +32,11 @@
     C. Project summary
 
 # 2. Rat Model of Prenatal Alcohol Exposure
+## [Prenatal alcohol exposure & DNAm sex differences - Genes, 2021](/Rat_DNAm_sex_differences)
+    A. Manuscript
+    B. Scripts
+    C. Project summary
+    
 ## [Prenatal Alcohol Exposure: Profiling Developmental DNA Methylation Patterns in Central and Peripheral Tissues (Rat DNAm) - Frontiers in Genetics, 2018](/Rat_DNAm)
     A. Manuscript
     B. Scripts
