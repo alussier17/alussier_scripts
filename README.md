@@ -1,6 +1,10 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
 # 1. Human epigenetics projects
+## [Two-sample Mendelian Randomization of adversity-DNAm and health outcomes](/DNAm_MR_AJE)
+    1. Manuscripts
+    2. Scripts
+
 ## [Time-varying childhood adversity and DNA methylation at age 15 ALSPAC)](/adversity-DNAm)
     1. Manuscripts
     2. SLCMA scripts
