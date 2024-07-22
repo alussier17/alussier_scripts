@@ -1,7 +1,7 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
 # 1. Human epigenetics projects
-## [Two-sample Mendelian Randomization of adversity-DNAm and health outcomes](/DNAm_MR_AJE)
+## [Two-sample Mendelian Randomization of adversity-associated DNAm and health outcomes](/DNAm_MR_AJE)
     1. Manuscripts
     2. Scripts
 
