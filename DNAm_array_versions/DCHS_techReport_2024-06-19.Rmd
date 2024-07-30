@@ -1,0 +1,1322 @@
+---
+title: "Technical Report manuscript"
+output: html_document
+date: '2023-10-18'
+---
+
+```{r setup}
+library(ggplot2)
+library(dplyr)
+library(viridis)
+library(matrixStats)
+
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Analysis/")
+samplesheet <- data.table::fread("Preprocessing/2023-03-21/DCHS_technical_samplesheet_corrected_2023-03-21.csv")
+#dim(samplesheet)
+samplesheet$base <- limma::strsplit2(samplesheet$ID, "_")[,1]
+samplesheet$base2 <- paste0(samplesheet$base,"_", samplesheet$Sample_Plate)
+
+#450K
+load("Preprocessing/2023-03-28_450K/dchsTech_betas_450K_2023-03-28.Rdata")
+colnames(beta450K) <- samplesheet$ID[match(colnames(beta450K), samplesheet$Sample_Name)]
+beta450K <- beta450K[,-grep("_rep",colnames(beta450K))]
+
+#EpicV1
+load("Preprocessing/2023-03-28_epicV1/dchsTech_betas_epic1_2023-03-28.Rdata")
+colnames(betaV1) <- samplesheet$ID[match(colnames(betaV1), samplesheet$Sample_Name)]
+betaV1 <- betaV1[,-grep("_rep",colnames(betaV1))]
+
+#EpicV2
+load("Preprocessing/2023-03-28_epicV2/dchsTech_betas_epic2_2023-03-28.Rdata")
+colnames(betaV2) <- samplesheet$ID[match(colnames(betaV2), samplesheet$Sample_Name)]
+betaV2 <- betaV2[!(rowSums(is.na(betaV2[,])))==32,] #some weird ones that need to be removed- control probes?
+betaV2 <- betaV2[,-grep("_rep",colnames(betaV2))]
+
+```
+
+```{r}
+# beta1 <- beta450K[1:1000,]
+# beta2 <- betaV1[1:1000,]
+
+otherCor <- function(beta1, beta2, method = "pearson"){
+  CpGs <- data.frame(CpG = as.character(rownames(beta1)), 
+                     cor = NA)
+  beta1 <- beta1[rownames(beta1) %in% rownames(beta2),]
+  beta2 <- beta2[match(rownames(beta1), rownames(beta2)),]
+  colnames(beta1) <- limma::strsplit2(colnames(beta1), "_")[,1]
+  colnames(beta2) <- limma::strsplit2(colnames(beta2), "_")[,1]
+  beta2 <- beta2[,match(colnames(beta1), colnames(beta2))]
+  
+  cat("There are ", nrow(beta1)," CpGs to analyze across ", ncol(beta1), " samples.\n")
+  corrs <- unlist(lapply(1:nrow(beta1), function(x){
+    if(x %% 10000 ==0 | x ==1){cat("Analyzing CpG", x, "of", nrow(beta1),"\n")}
+    cor(beta1[x,], beta2[x,], method= method)
+  }))
+  
+  res <- data.frame(CpG = as.character(rownames(beta1)),
+                    cor = corrs)
+  CpGs$cor[match(res$CpG, CpGs$CpG)] <- res$cor
+  CpGs[!is.na(CpGs$cor),]
+  return(CpGs)
+}
+
+
+```
+
+
+```{r}
+feat450 <- meffil::meffil.get.features("450k")
+featEpic1 <- meffil::meffil.get.features("epic")
+featEpic2 <- meffil::meffil.get.features("epic2")
+
+only450 <- feat450[!feat450$name %in% featEpic1$name,]
+only450 <- only450[!only450$name %in% featEpic2$name,]
+#dim(only450) #8820
+
+onlyV1 <- featEpic1[!featEpic1$name %in% feat450$name,]
+onlyV1 <- onlyV1[!onlyV1$name %in% featEpic2$name,]
+#dim(onlyV1) #61451
+
+onlyV2 <- featEpic2[!featEpic2$name %in% feat450$name,]
+onlyV2 <- onlyV2[!onlyV2$name %in% featEpic1$name,]
+#dim(onlyV2) #185853
+
+co450_V1 <- feat450[feat450$name %in% featEpic1$name,]
+co450_V1 <- co450_V1[!co450_V1$name %in% featEpic2$name,]
+#dim(co450_V1) #82667
+
+co450_V2 <- feat450[feat450$name %in% featEpic2$name,]
+co450_V2 <- co450_V2[!co450_V2$name %in% featEpic1$name,]
+#dim(co450_V2) #24597
+
+coV1_V2 <- featEpic1[featEpic1$name %in% featEpic2$name,]
+coV1_V2 <- coV1_V2[!coV1_V2$name %in% feat450$name,]
+#dim(coV1_V2) #352094
+
+all <- feat450[feat450$name %in% featEpic1$name,]
+all <- all[all$name %in% featEpic2$name,]
+#dim(all) #370341
+
+#array annot
+arrayAnnot <- rbind(data.frame(only450,
+                               Subset = "Only 450K"),
+                    data.frame(onlyV1,
+                               Subset = "Only EpicV1"),
+                    data.frame(onlyV2,
+                               Subset = "Only EpicV2"),
+                    data.frame(co450_V1,
+                               Subset = "450K & EpicV1"),
+                    data.frame(co450_V2,
+                               Subset = "450K & EpicV2"),
+                    data.frame(coV1_V2,
+                               Subset = "EpicV1 & EpicV2"),
+                    data.frame(all,
+                               Subset = "All arrays"))
+dim(arrayAnnot)                    
+head(arrayAnnot)
+
+rm(feat450, featEpic1, featEpic2, all, co450_V1, co450_V2, coV1_V2, only450, onlyV1, onlyV2)
+
+```
+
+
+*Making the summary data frame*
+```{r}
+load("iccByArray_2023-04-04.Rdata", verbose=T)
+head(ICC450K)
+
+head(beta450K) 
+
+summary450 <- data.frame(CpG = rownames(beta450K),
+                         Array = "450K",
+                         mean = rowMeans(beta450K),
+                         sd = rowSds(beta450K),
+                         ICC = ICC450K$icc[match(rownames(beta450K), ICC450K$probe)], 
+                         IQR = rowIQRs(beta450K))
+
+rownames(summary450) <- 1:nrow(summary450)
+summary450$Informative <- ifelse(summary450$IQR>0.01 & summary450$ICC>0.5, "Pass","Fail")
+table(summary450$Informative)
+summary450$mQTL <- NA
+head(summary450)
+
+summary450$corr_450K <- 1
+summary450$corr_V1 <- otherCor(beta450K, betaV1)$cor
+summary450$corr_V2 <- otherCor(beta450K, betaV2)$cor
+summary450$corr_450K_sp <- 1
+summary450$corr_V1_sp <- otherCor(beta450K, betaV1, "spearman")$cor
+summary450$corr_V2_sp <- otherCor(beta450K, betaV2, "spearman")$cor
+head(summary450)
+
+
+summaryV1 <- data.frame(CpG = rownames(betaV1),
+                         Array = "Epic_V1",
+                         mean = rowMeans(betaV1),
+                         sd = rowSds(betaV1),
+                         ICC = ICCv1$icc[match(rownames(betaV1), ICCv1$probe)], 
+                         IQR = rowIQRs(betaV1))
+
+rownames(summaryV1) <- 1:nrow(summaryV1)
+summaryV1$Informative <- ifelse(summaryV1$IQR>0.01 & summaryV1$ICC>0.5, "Pass","Fail")
+table(summaryV1$Informative)
+summaryV1$mQTL <- NA
+head(summaryV1)
+
+summaryV1$corr_450K <- otherCor(betaV1, beta450K)$cor
+summaryV1$corr_V1 <- 1
+summaryV1$corr_V2 <- otherCor(betaV1, betaV2)$cor
+summaryV1$corr_450K_sp <- otherCor(betaV1, beta450K, "spearman")$cor
+summaryV1$corr_V1_sp <- 1
+summaryV1$corr_V2_sp <- otherCor(betaV1, betaV2, "spearman")$cor
+head(summaryV1)
+
+# cor(betaV1[rownames(betaV1)=="cg07881041",],beta450K[rownames(beta450K)=="cg07881041",])
+# 
+# temp <- betaV1[rownames(betaV1)=="cg07881041",]
+# names(temp) <- limma::strsplit2(names(temp),"_")[,1]
+# temp2 <- beta450K[rownames(beta450K)=="cg07881041",]
+# names(temp2) <- limma::strsplit2(names(temp2),"_")[,1]
+# temp2 <- temp2[match(names(temp),names(temp2))]
+# mean(temp)-mean(temp2)
+
+
+summaryV2 <- data.frame(CpG = rownames(betaV2),
+                         Array = "Epic_V2",
+                         mean = rowMeans(betaV2),
+                         sd = rowSds(betaV2),
+                         ICC = ICCv2$icc[match(rownames(betaV2), ICCv2$probe)], 
+                         IQR = rowIQRs(betaV2))
+
+rownames(summaryV2) <- 1:nrow(summaryV2)
+summaryV2$Informative <- ifelse(summaryV2$IQR>0.01 & summaryV2$ICC>0.5, "Pass","Fail")
+table(summaryV2$Informative)
+summaryV2$mQTL <- NA
+head(summaryV2)
+
+summaryV2$corr_450K <- otherCor(betaV2, beta450K)$cor
+summaryV2$corr_V1 <- otherCor(betaV2, betaV1)$cor
+summaryV2$corr_V2 <- 1
+summaryV2$corr_450K_sp <- otherCor(betaV2, beta450K, "spearman")$cor
+summaryV2$corr_V1_sp <- otherCor(betaV2, betaV1, "spearman")$cor
+summaryV2$corr_V2_sp <- 1
+head(summaryV2)
+
+
+summaryLong <- rbind(summary450, summaryV1, summaryV2)
+table(summaryLong$Informative,summaryLong$Array)
+head(summaryLong)
+
+## mQTL annotation
+#mQTLs were obtained from GoDMC. cis mQTLs selected from p<1x10-8 and trans mQTLs selected from p<1x10-14
+load("GoDMC_cis_trans_CpGs_2023-11-08.Rdata", verbose=T)
+mQTLsummary$summary <- ifelse(!is.na(mQTLsummary$cis_mQTL) & !is.na(mQTLsummary$trans_mQTL), "cis & trans",
+                              ifelse(!is.na(mQTLsummary$cis_mQTL), "cis",
+                                     ifelse(!is.na(mQTLsummary$trans_mQTL), "trans","No")))
+mQTLsummary2 <- cbind(summaryLong$CpG, 
+                      mQTLsummary[match(summaryLong$CpG, mQTLsummary$CpG),])
+mQTLsummary2$summary[is.na(mQTLsummary2$summary)] <- "Not available in GoDMC"
+head(mQTLsummary2)
+summaryLong$mQTL <- mQTLsummary2$summary
+
+rm(mQTLsummary, mQTLsummary2)
+
+
+#save(summaryLong, file = "summaryLong_2023-10-18.Rdata")
+#save(summaryLong, file = "summaryLong_2023-11-09.Rdata")
+#load("summaryLong_2023-11-09.Rdata")
+head(summaryLong)
+summaryLong$Array <- gsub("Epic_V1","EPICv1", gsub("Epic_V2","EPICv2",summaryLong$Array))
+#save(summaryLong, file = "summaryLong_2024-02-08.Rdata")
+load("summaryLong_2024-02-08.Rdata")
+
+# meanDiff <- reshape::melt(summaryLong[,1:4])
+# head(meanDiff)
+# ggplot(meanDiff, aes(x = Array, y = value, fill = Array))+
+#   geom_violin(alpha = 0.7)+
+#   geom_boxplot(width=0.2,fill="grey")+
+#   facet_wrap(~variable, scales="free")+
+#   scale_fill_viridis(discrete=T, "Array")
+# 
+# head(arrayAnnot)
+# ggplot(meanDiff[meanDiff$CpG %in% arrayAnnot$name[arrayAnnot$Subset =="All arrays"],], 
+#        aes(x = Array, y = value, fill = Array))+
+#   geom_violin(alpha = 0.7)+
+#   geom_boxplot(width=0.2,fill="grey")+
+#   facet_wrap(~variable, scales="free")+
+#   scale_fill_viridis(discrete=T, "Array")+
+#   theme_classic()
+
+
+```
+
+
+*Bias results (regressing by array + sampleID)*
+```{r}
+library(tibble)
+fullBeta <- full_join(rownames_to_column(data.frame(beta450K)), 
+                      rownames_to_column(data.frame(betaV1)),
+                      by = "rowname")
+fullBeta <- full_join(fullBeta, 
+                      rownames_to_column(data.frame(betaV2)), 
+                      by ="rowname")
+
+#save(fullBeta, file = "betasFull_2023-10-18.Rdata")
+load("betasFull_2023-10-18.Rdata")
+
+#sample means and SD
+# meanSummary <- rbind(data.frame(SampleID = colnames(fullBeta[grep("450K",colnames(fullBeta))]),
+#                                 Mean = colMeans(fullBeta[,grep("450K",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta[,grep("450K",colnames(fullBeta))]),2, median),
+#                                 SD = apply(na.omit(fullBeta[,grep("450K",colnames(fullBeta))]),2,sd ),
+#                                 Array = "450K",
+#                                 Subset = "All"),
+#                      data.frame(SampleID = colnames(fullBeta[grep("V1",colnames(fullBeta))]),
+#                                 Mean = colMeans(fullBeta[,grep("V1",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta[,grep("V1",colnames(fullBeta))]),2, median),
+#                                 SD = apply(na.omit(fullBeta[,grep("V1",colnames(fullBeta))]),2,sd ),
+#                                 Array = "EPICv1",
+#                                 Subset = "All"),
+#                      data.frame(SampleID = colnames(fullBeta[grep("V2",colnames(fullBeta))]),
+#                                 Mean = colMeans(fullBeta[,grep("V2",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta[,grep("V2",colnames(fullBeta))]),2, median),
+#                                 SD = apply(na.omit(fullBeta[,grep("V2",colnames(fullBeta))]),2,sd ),
+#                                 Array = "EPICv2",
+#                                 Subset = "All"))
+# 
+# meanSummary <- rbind(meanSummary, #different na.omit position leads to different subset
+#                      data.frame(SampleID = colnames(fullBeta[grep("450K",colnames(fullBeta))]),
+#                                 Mean = colMeans(na.omit(fullBeta)[,grep("450K",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta)[,grep("450K",colnames(fullBeta))],2, median),
+#                                 SD = apply(na.omit(fullBeta)[,grep("450K",colnames(fullBeta))],2,sd ),
+#                                 Array = "450K",
+#                                 Subset = "Overlapping"),
+#                      data.frame(SampleID = colnames(fullBeta[grep("V1",colnames(fullBeta))]),
+#                                 Mean = colMeans(na.omit(fullBeta)[,grep("V1",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta)[,grep("V1",colnames(fullBeta))],2, median),
+#                                 SD = apply(na.omit(fullBeta)[,grep("V1",colnames(fullBeta))],2,sd ),
+#                                 Array = "EPICv1",
+#                                 Subset = "Overlapping"),
+#                      data.frame(SampleID = colnames(fullBeta[grep("V2",colnames(fullBeta))]),
+#                                 Mean = colMeans(na.omit(fullBeta)[,grep("V2",colnames(fullBeta))], na.rm = T),
+#                                 Median = apply(na.omit(fullBeta)[,grep("V2",colnames(fullBeta))],2, median),
+#                                 SD = apply(na.omit(fullBeta)[,grep("V2",colnames(fullBeta))],2,sd ),
+#                                 Array = "EPICv2",
+#                                 Subset = "Overlapping"))
+# 
+# meanSummaryMelt <- reshape::melt(meanSummary)
+# 
+# ggplot(meanSummaryMelt[meanSummaryMelt$variable != "Median",], 
+#        aes(x= Array, y= value*100, fill = Array, alpha = Subset))+
+#   geom_boxplot()+
+#   #geom_boxplot(alpha=1, fill ="grey",width =0.2)+
+#   theme_classic()+
+#   scale_fill_viridis(discrete=T)+
+#   scale_alpha_manual(values = c(0.4, 0.8), "CpG subset", labels = c("All","Overlapping"),
+#                      guide = guide_legend(override.aes = list(fill = "black")))+
+#   facet_wrap(~variable, scales="free")+
+#   ylab("Percent DNA methylation")+
+#   xlab("")+
+#   theme(axis.text = element_text(size =10),
+#         axis.title = element_text(size =12),
+#         legend.text = element_text(size =10),
+#         legend.title = element_text(size =12))
+
+
+
+allCpGs <- fullBeta$rowname
+dim(fullBeta)
+dim(fullBeta)
+head(fullBeta)
+
+library(reshape)
+library(limma)
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/biasAnalysisResults_2023-11-08.Rdata", verbose=T)
+
+summaryLong$biasPval <- biasResults$p.value[match(summaryLong$CpG, biasResults$CpG)]
+summaryLong$biasVarExplained <- biasResults$var_explained[match(summaryLong$CpG, biasResults$CpG)]
+
+head(biasTukey)
+summaryLong$bias450K_V1 <- NA
+V1_450K <- biasTukey[biasTukey$Contrast == "V1-450K",]
+V1_450K$diff_corr <- -V1_450K$diff
+summaryLong$bias450K_V1 <- V1_450K$diff_corr[match(summaryLong$CpG, V1_450K$CpG)]
+
+summaryLong$bias450K_V2 <- NA
+V2_450K <- biasTukey[biasTukey$Contrast == "V2-450K",]
+V2_450K$diff_corr <- -V2_450K$diff
+summaryLong$bias450K_V2 <- V2_450K$diff_corr[match(summaryLong$CpG, V2_450K$CpG)]
+
+summaryLong$biasV1_V2 <- NA
+V1_V2 <- biasTukey[biasTukey$Contrast == "V2-V1",]
+V1_V2$diff_corr <- -V1_V2$diff
+summaryLong$biasV1_V2 <- V1_V2$diff_corr[match(summaryLong$CpG, V1_V2$CpG)]
+head(summaryLong)
+
+#save(summaryLong, file = "summaryLong_2024-02-08.Rdata")
+load("summaryLong_2024-02-08.Rdata")
+
+head(biasResults)
+summary(biasResults$var_explained)
+head(biasResults)
+
+biasResults$FDR <- p.adjust(biasResults$p.value, method="BH")
+biasResults$Subset <- arrayAnnot$Subset[match(biasResults$CpG, arrayAnnot$name)]
+# sum(biasResults$FDR<0.05) / nrow(biasResults) #77.5% of CpGs significantly different by array
+# sum(abs(biasResults$sumsq>=0.05)) #50841 with >5% difference between arrays
+# sum(abs(biasResults$sumsq>=0.01)) #50841 with >5% difference between arrays
+# sum(abs(biasResults$meansq>=0.05)) #50841 with >5% difference between arrays
+
+
+library(ggplot2)  
+ggplot(biasResults, aes(x = Subset, y = -log10(p.value)))+
+  geom_boxplot()+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.05), col="red") #lower p-values when using all three arrays - makes sense
+
+ggplot(biasResults, aes(x = Subset, y = var_explained))+
+  geom_boxplot()+
+  theme_classic()+
+  geom_hline(yintercept = 0.05, col="red")
+
+ggplot(biasResults, aes(x = Subset, y = -log10(sumsq)))+
+  geom_boxplot()+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.05), col="red")
+
+summary(biasResults$sumsq)
+head(biasResults)
+
+head(biasTukey)
+biasTukey$Subset <- arrayAnnot$Subset[match(biasTukey$CpG, arrayAnnot$name)]
+summary(abs(biasTukey$diff))
+length(unique(biasTukey$CpG[abs(biasTukey$diff)>0.05]))
+library(dplyr)
+biasTukey %>% dplyr::select(diff, Contrast, Subset) %>% dplyr::group_by(Contrast, Subset) %>% 
+  dplyr::summarise(min = min(diff),
+            median = median(diff),
+            mean = mean(diff),
+            sd = sd(diff),
+            max = max(diff),
+            Diff0.05 = sum(abs(diff)>0.05),
+            Diff0.1 = sum(abs(diff)>0.1),
+            Diff0.5 = sum(abs(diff)>0.5)
+            )
+
+
+sum(biasTukey$p.adj<0.05)/nrow(biasTukey)
+sum(biasTukey$p.adj<1e-10)/nrow(biasTukey) #16% of tests is insane
+min(abs(biasTukey$diff[biasTukey$p.adj<1e-10]))
+
+biasTukey[biasTukey$diff<= -0.0018321 & biasTukey$diff>= -0.0018323,] 
+summaryLong[summaryLong$CpG =="cg11135720",]
+biasTukey[biasTukey$CpG=="cg11135720",]
+
+
+ggplot(betasLong[betasLong$CpG =="cg11135720",], aes(x = Array, y = beta))+
+  geom_boxplot()+
+  theme_classic()
+#looks like it has really low DNAm, so small change has a big effect
+
+library(viridis)
+library(ggplot2)
+ggplot(biasTukey, aes(x = Contrast, y = -log10(abs(diff))))+
+  geom_violin(alpha=0.77, aes(fill = Subset), position=position_dodge(width = 1))+
+  geom_boxplot(width =.3, outlier.size = -1, aes(group = interaction(Contrast, Subset)), 
+               position=position_dodge(width = 1),
+               fill = "lightgrey",alpha = 0.7)+
+  theme_classic()+
+  geom_hline(yintercept = -log10(c(0.05)), linetype =3,col="darkred")+
+  scale_fill_viridis(discrete=T)
+
+
+ggplot(biasTukey, aes(x = Contrast, y = -log10(p.adj), fill = Subset))+
+  geom_boxplot(outlier.size = -1, alpha =0.7)+
+  theme_classic()+
+  geom_hline(yintercept = -log10(c(0.05)), linetype =3,col="darkred")+
+  scale_fill_viridis(discrete=T)
+
+
+ggplot(biasTukey, aes(x = Contrast, y = diff, fill = Subset))+
+  geom_violin(alpha=0.77)+
+  #geom_boxplot(width =.1, fill="grey", outlier.size = -1)+
+  theme_classic()+
+  geom_hline(yintercept = c(-0.05, 0.05), linetype =3,col="darkred")+
+  scale_fill_viridis(discrete=T)+
+  ylab("Mean difference between arrays")
+
+```
+
+
+*Figure 1. Contrasting metrics across arrays*
+
+```{r}
+
+fig1A <- list("450K" = as.character(summaryLong$CpG[summaryLong$Array =="450K"]),
+              "EPICv1" = as.character(summaryLong$CpG[summaryLong$Array =="EPICv1"]),
+              "EPICv2" = as.character(summaryLong$CpG[summaryLong$Array =="EPICv2"]))
+
+ggvenn(fig1A,
+       fill_color = viridis(n=3),
+       #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+       stroke_size=0.5)
+
+
+fig1B <- melt(summaryLong[,c("CpG","Array","mean","sd")])
+head(fig1B)
+fig1B$Subset <- arrayAnnot$Subset[match(fig1B$CpG, arrayAnnot$name)]
+
+fig1B <- rbind(data.frame(fig1B, Category = "All"),
+               data.frame(fig1B[fig1B$Subset =="All arrays",], Category = "Overlapping"))
+fig1B$variable <- gsub("mean","Mean", gsub("sd","SD", fig1B$variable))
+
+tail(fig1B)
+
+
+ggplot(fig1B, aes(x= Array, y = value*100, fill = Array, alpha = Category))+
+  geom_boxplot(outlier.size = 0.1, width=0.7)+
+  #geom_violin()+
+  theme_classic()+
+  facet_wrap(~variable, scales="free")+
+  scale_fill_viridis(discrete=T)+
+  scale_alpha_manual("Subset", values = c(0.4, 0.8),
+                     guide = guide_legend(override.aes = list(fill = "black")))+
+  ylab("Percent DNA methylation")+
+  xlab("")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=10))
+
+library(reshape)
+fig1C <- melt(summaryLong[,c("CpG","Array","ICC")])
+head(fig1C)
+fig1C$Subset <- arrayAnnot$Subset[match(fig1C$CpG, arrayAnnot$name)]
+fig1C <- rbind(data.frame(fig1C, Category = "All"),
+               data.frame(fig1C[fig1C$Subset =="All arrays",], Category = "Overlapping"))
+head(fig1C)
+fig1C$variable <-"Intraclass correlation coefficient (ICC)"
+
+ggplot(fig1C, aes(x= Array, y = value, fill = Array, alpha = Category))+
+  geom_boxplot(outlier.size = 0.1, width=0.7)+
+  #geom_violin()+
+  theme_classic()+
+  facet_wrap(~variable, scales="free")+
+  scale_fill_viridis(discrete=T)+
+  scale_alpha_manual("Subset", values = c(0.4, 0.8),
+                     guide = guide_legend(override.aes = list(fill = "black")))+
+  ylab("ICC")+
+  geom_hline(yintercept = 0.5, col="red",linetype=3)+
+  xlab("")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=10))
+
+head(fig1C)
+fig1C %>%
+  group_by(Array, Category) %>% 
+  summarize(median(value))
+
+
+fig1D <- melt(summaryLong[,c("CpG","Array","IQR")])
+head(fig1D)
+fig1D$Subset <- arrayAnnot$Subset[match(fig1D$CpG, arrayAnnot$name)]
+fig1D <- rbind(data.frame(fig1D, Category = "All"),
+               data.frame(fig1D[fig1D$Subset =="All arrays",], Category = "Overlapping"))
+head(fig1D)
+fig1D$variable <- "Interquartile range (IQR)"
+ggplot(fig1D, aes(x= Array, y = log10(value), fill = Array, alpha = Category))+
+  geom_boxplot(outlier.size = 0.1, width=0.7)+
+  #geom_violin()+
+  theme_classic()+
+  facet_wrap(~variable, scales="free")+
+  scale_fill_viridis(discrete=T)+
+  scale_alpha_manual("Subset", values = c(0.4, 0.8),
+                     guide = guide_legend(override.aes = list(fill = "black")))+
+  ylab("log10(IQR)")+
+  geom_hline(yintercept = log10(0.01), col = "red",linetype=3)+
+  xlab("")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=10))
+
+fig1D %>%
+  group_by(Array, Category) %>% 
+  summarize(median = median(value), mean = mean(value)) %>%
+  filter(Category == "All")
+
+fig1E <- melt(summaryLong[,c("CpG","Array","Informative")])
+head(fig1E)
+fig1E$Subset <- arrayAnnot$Subset[match(fig1E$CpG, arrayAnnot$name)]
+fig1E <- rbind(data.frame(fig1E, Category = "All"),
+               data.frame(fig1E[fig1E$Subset =="All arrays",], Category = "Overlapping"))
+head(fig1E)
+
+# ggplot(fig1E, aes(x= Array, fill = Informative))+
+#   geom_bar(stat= 'count', width=0.7, position="dodge",col="black",alpha=0.77)+
+#   #geom_violin()+
+#   theme_classic()+
+#   facet_wrap(~Category)+
+#   scale_fill_viridis(discrete=T)+
+#   # scale_alpha_manual("Subset", values = c(0.4, 0.8),
+#   #                    guide = guide_legend(override.aes = list(fill = "black")))+
+#   ylab("Number of informative probes")+
+#   xlab("")+
+#   theme(axis.text = element_text(size =10),
+#         axis.title = element_text(size =12),
+#         legend.text = element_text(size =10),
+#         legend.title = element_text(size =12),
+#         strip.text = element_text(size=10))
+fig1E$variable <- "Informative probes"
+ggplot(fig1E[fig1E$Informative=="Pass",], aes(x= Array, fill=Array, alpha = Category))+
+  geom_bar(stat= 'count', width=0.7, position="dodge",col="black")+
+  #geom_violin()+
+  theme_classic()+
+  facet_wrap(~variable)+
+  scale_fill_viridis(discrete=T)+
+  scale_alpha_manual("Subset", values = c(0.4, 0.8),
+                     guide = guide_legend(override.aes = list(fill = "black")))+
+  ylab("Number of probes with ICC>0.5 & IQR>0.01")+
+  xlab("")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=10))
+
+
+
+fig1F <- melt(summaryLong[,c("CpG","Array","bias450K_V1","bias450K_V2","biasV1_V2")])
+fig1F <- fig1F[!is.na(fig1F$value),]
+fig1F$Subset <- arrayAnnot$Subset[match(fig1F$CpG, arrayAnnot$name)]
+# fig1F <- rbind(data.frame(fig1F, Category = "All"),
+#                data.frame(fig1F[fig1F$Subset =="All arrays",], Category = "Overlapping"))
+fig1F$Subset <- gsub("EpicV", "EPICv",fig1F$Subset)
+table(fig1F$Subset)
+fig1F$Subset <- factor(fig1F$Subset, 
+                       levels = c("All arrays","450K & EPICv1", "450K & EPICv2","EPICv1 & EPICv2"))
+
+#fig1F$variable <- "Array variance"
+head(fig1F)
+fig1F$name <- "Array variance"
+ggplot(fig1F, aes(x= Array, y = value*100, fill = Subset))+
+  geom_hline(yintercept = c(0), col="darkgrey",linetype=1)+
+  geom_boxplot(outlier.size = 0.05, width=0.7, alpha=0.77)+
+  ylim(-20, 20)+
+  #geom_violin()+
+  theme_classic()+
+  facet_wrap(~name, scales="free")+
+  scale_fill_viridis(discrete=T)+
+  # scale_alpha_manual("Subset", values = c(0.4, 0.8),
+  #                    guide = guide_legend(override.aes = list(fill = "black")))+
+  ylab("Mean DNA methylation differences between arrays")+
+  geom_hline(yintercept = c(-5, 5), col="red",linetype=3)+
+  xlab("")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=10))
+
+fig1F %>% group_by(Subset) %>% dplyr::summarise(mean(value))
+head(summaryLong)
+```
+
+
+*Sex differences*
+```{r}
+load("dchsTech_betas_noRep_2023-11-07.Rdata", verbose=T)
+library(limma)
+
+samplesheetNoRep$Sex <- as.factor(samplesheetNoRep$Sex)
+samplesheetNoRep$Sample_Plate <- as.factor(samplesheetNoRep$Sample_Plate)
+
+mod <- model.matrix(~1+Sex+Sex*Sample_Plate + Bcell + CD4T + CD8T + Gran + Mono + NK+ 
+                      Ethnicity + Birthweight +
+                      Gestage+ Smoking + Momage + SES + Parity + Site,
+                    data= samplesheetNoRep)
+rownames(mod) <- samplesheetNoRep$ID
+identical(colnames(betaNoRep), rownames(mod))
+
+fit <- lmFit(betaNoRep, mod)
+fit <- eBayes(fit)
+#colnames(fit$coefficients)
+topSex <- topTable(fit, coef = "SexM", adjust.method = "none",
+                   n="Inf", p.value = 1e-8)
+topSexV1 <- topTable(fit, coef = "SexM:Sample_PlateV1", adjust.method = "none",
+                     n="Inf", p.value = 1e-8)
+topSexV2 <- topTable(fit, coef = "SexM:Sample_PlateV2", adjust.method = "none",
+                     n="Inf", p.value = 1e-8)
+
+# dim(topSex) #9836
+# dim(topSexV1) #1055
+# dim(topSexV2) #767 - fewer hits = less differences? 
+#cat("Analyses of interaction between sex and array \n")
+
+library(ggvenn)
+ggvenn(list("SexOnly" = rownames(topSex),
+            "Sex-EPICv1" = rownames(topSexV1),
+            "Sex-EPICv2" = rownames(topSexV2)),
+       fill_color = viridis(n=3),
+       stroke_size=0.5)
+
+colnames(mod)
+## Sex-differences
+fit450 <- lmFit(betaNoRep[,grep("_450K", colnames(betaNoRep))], 
+                mod[grep("_450K", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fit450 <- eBayes(fit450)
+top450 <- topTable(fit450, coef = "SexM", adjust.method ="BH", n="Inf")
+dim(top450)
+fitV1 <- lmFit(betaNoRep[,grep("_V1", colnames(betaNoRep))], 
+                mod[grep("_V1", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fitV1 <- eBayes(fitV1)
+topV1 <- topTable(fitV1, coef = "SexM", adjust.method ="BH", n="Inf")
+
+
+fitV2 <- lmFit(betaNoRep[,grep("_V2", colnames(betaNoRep))], 
+                mod[grep("_V2", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fitV2 <- eBayes(fitV2)
+topV2 <- topTable(fitV2, coef = "SexM", adjust.method ="BH", n="Inf")
+dim(topV2)
+#cat("Each array analyzed separately (FDR<0.05):\n")
+ggvenn(list("450K" = rownames(top450[top450$adj.P.Val<=0.05,]),
+            EPICv1 = rownames(topV1[topV1$adj.P.Val<=0.05,]),
+            EPICv2 = rownames(topV2[topV2$adj.P.Val<=0.05,])),
+       fill_color = viridis(n=3),
+       stroke_size=0.5)
+  
+ggvenn(list("450K" = rownames(top450[top450$P.Value<=1e-8,]),
+            EPICv1 = rownames(topV1[topV1$P.Value<=1e-8,]),
+            EPICv2 = rownames(topV2[topV2$P.Value<=1e-8,])),
+       fill_color = viridis(n=3),
+       stroke_size=0.5)
+
+dim(top450[top450$P.Value<=1e-8,])
+
+```
+
+*Figure 2*
+```{r}
+
+topCpGs <- c(rownames(top450)[top450$P.Value<1e-8],
+             rownames(topV1)[topV1$P.Value<1e-8],
+             rownames(topV2)[topV2$P.Value<1e-8])
+top <- rbind(data.frame(CpG = rownames(top450[rownames(top450)%in% topCpGs,]),
+                        top450[rownames(top450)%in% topCpGs,],
+                        array = "450K"),
+             data.frame(CpG = rownames(topV1[rownames(topV1)%in% topCpGs,]),
+                        topV1[rownames(topV1)%in% topCpGs,],
+                        array = "EpicV1"),
+             data.frame(CpG = rownames(topV2[rownames(topV2)%in% topCpGs,]),
+                        topV2[rownames(topV2)%in% topCpGs,],
+                        array = "EpicV2"))
+
+top <- top[order(top$array, top$CpG),]
+top$delta <- (2^top$logFC * top$AveExpr) - top$AveExpr
+topBetas <- data.frame(CpG = unique(top$CpG), 
+                       K450 = top$delta[top$array == "450K"],
+                       EpicV1 = top$delta[top$array == "EpicV1"],
+                       EpicV2 = top$delta[top$array == "EpicV2"],
+                       K450_pval = top$P.Value[top$array == "450K"],
+                       EpicV1_pval = top$P.Value[top$array == "EpicV1"],
+                       EpicV2_pval = top$P.Value[top$array == "EpicV2"])
+topBetas$color <- ifelse(rowSums(topBetas[,5:7] < 1e-8)==3, "All",
+                         ifelse(rowSums(topBetas[,c(5,6)] < 1e-8)==2,"450K & EpicV1",
+                                ifelse(rowSums(topBetas[,c(5,7)] < 1e-8)==2,"450K & EpicV2",
+                                       ifelse(rowSums(topBetas[,c(6,7)] <
+                                                        1e-8)==2,"EpicV1 & EpicV2",
+                                              ifelse(topBetas$K450_pval < 1e-8,"Only 450K",
+                                                     ifelse(topBetas$EpicV1_pval < 1e-8,
+                                                            "Only EpicV1",
+                                                            ifelse(topBetas$EpicV2_pval < 
+                                                                     1e-8,"Only EpicV2", NA
+                                                            )))))))
+topBetas$color <- factor(topBetas$color,
+                         levels = c("All","Only 450K", "Only EpicV1","Only EpicV2",
+                                    "450K & EpicV1", "450K & EpicV2","EpicV1 & EpicV2"))
+dim(topBetas)
+corrs <- c(cor(topBetas$K450[-grep("EpicV2", topBetas$color)], 
+                        topBetas$EpicV1[-grep("EpicV2", topBetas$color)] ),
+           cor(topBetas$K450[-grep("EpicV1", topBetas$color)], 
+                        topBetas$EpicV2[-grep("EpicV1", topBetas$color)] ),
+           cor(topBetas$EpicV2[-grep("450K", topBetas$color)], 
+                        topBetas$EpicV1[-grep("450K", topBetas$color)] ))
+
+corrDF <- data.frame(K450 = .3, #these numbers are positions on the graphs
+                     EpicV1 = .4,
+                     EpicV2 = .4, 
+                     data = corrs, color= "All")
+corrDF$EpicV1[3] <- 0.3
+
+head(topBetas)
+sum(!rowSums(topBetas[2:4]<0) %in% c(0,3)) #2
+topBetas[which(!rowSums(topBetas[2:4]<0) %in% c(0,3)),] #2
+badCpGs <- topBetas$CpG[which(!rowSums(topBetas[2:4]<0) %in% c(0,3))] #2
+summaryLong[summaryLong$CpG %in% badCpGs,]
+
+dim(topBetas)
+
+
+
+a<- ggplot(topBetas[-grep("EpicV2", topBetas$color),], 
+       aes(x= K450, y= EpicV1, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EPICv1 ∆beta")+
+  xlab("450K ∆beta")+
+  #scale_color_viridis("Analysis", discrete=T, drop=F)+
+  scale_color_manual("Analysis",values = viridis(n=7)[c(1:3,5)])+
+  theme(legend.text = element_text(size=10),
+        legend.title = element_text(size=12))+
+  geom_text(data = corrDF[1,], aes(label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+a
+b<- ggplot(topBetas[-grep("EpicV1", topBetas$color),], 
+       aes(x= K450, y= EpicV2, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EPICv2 ∆beta")+
+  xlab("450K ∆beta")+
+  #scale_color_viridis("Analysis", discrete=T, drop=F)+
+  scale_color_manual("Analysis",values = viridis(n=7)[c(1,2,4,6)])+
+  geom_text(data = corrDF[2,], aes(label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+b
+c<- ggplot(topBetas[-grep("450K", topBetas$color),], 
+       aes(x= EpicV1, y= EpicV2, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EPICv2 ∆beta")+
+  xlab("EPICv1 ∆beta")+
+  #scale_color_viridis("Analysis", discrete=T, drop=F)+
+  scale_color_manual("Analysis",values = viridis(n=7)[c(1,3,4,7)])+
+  geom_text(data = corrDF[3,], aes(x= 0.3, label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+c
+library(gridExtra)
+grid.arrange(a+theme(legend.position="none"), 
+             b+theme(legend.position="none"), 
+             c+theme(legend.position="none"), 
+             # ggpubr::get_legend(a), 
+             nrow=1, top=textGrob("CpGs with p<1x10^-8 on any array"))
+
+# a+theme(legend.position="none")
+# b+theme(legend.position="none")
+# c+theme(legend.position="none")
+grid.arrange(ggpubr::get_legend(a))
+grid.arrange(ggpubr::get_legend(b))
+grid.arrange(ggpubr::get_legend(c))
+
+```
+
+*Investigating biases of sex associations*
+```{r}
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Analysis/summaryLong_2024-02-08.Rdata")
+
+sexArray <- rbind(data.frame(CpG = rownames(topSexV1),
+                             Analysis = "sexEPICv1"),
+                  data.frame(CpG = rownames(topSexV2),
+                             Analysis = "sexEPICv2"))
+sexArray$ICC <- summaryLong$ICC[match(sexArray$CpG, summaryLong$CpG)]
+sexArray$IQR <- summaryLong$IQR[match(sexArray$CpG, summaryLong$CpG)]
+sexArray$mean <- summaryLong$mean[match(sexArray$CpG, summaryLong$CpG)]
+sexArray$mQTL <- summaryLong$mQTL[match(sexArray$CpG, summaryLong$CpG)]
+sexArray$biasVarExplained <- summaryLong$biasVarExplained[match(sexArray$CpG, summaryLong$CpG)]
+
+head(sexArray)
+
+ggplot(sexArray, aes(x= Analysis, y= ICC))+
+  geom_boxplot()+
+  theme_classic()
+
+
+
+#not replicated
+sexAssoc <- list(K450 = rownames(top450[top450$P.Value<=1e-8,]),
+                 EPICv1 = rownames(topV1[topV1$P.Value<=1e-8,]),
+                 EPICv2 = rownames(topV2[topV2$P.Value<=1e-8,]))
+ggvenn(sexAssoc)
+noReps <- c(sexAssoc$K450, sexAssoc$EPICv1, sexAssoc$EPICv2)
+duplicates <- noReps[duplicated(noReps)]
+noReps <- noReps[!noReps %in% duplicates]
+length(noReps)
+390+17+152
+summaryLong[summaryLong$CpG =="cg26505478",]
+
+
+noReps <- rbind(data.frame(CpG = noReps[noReps %in% sexAssoc$K450],
+                           Array = "450K"),
+                data.frame(CpG = noReps[noReps %in% sexAssoc$EPICv1],
+                           Array = "EPICv1"),
+                data.frame(CpG = noReps[noReps %in% sexAssoc$EPICv2],
+                           Array = "EPICv2"))
+for(i in 1:nrow(noReps)){
+  if(i == 1){noRepsSummary <- data.frame()}
+  if(i %% 20 == 0){print(i)}
+  dat <- summaryLong[summaryLong$CpG == noReps$CpG[i],]
+  dat$SexAnalysis <- noReps$Array[i]
+  #dat <- dat[dat$Array == noReps$Array[i],]
+  noRepsSummary <- rbind(noRepsSummary, dat)
+  rm(dat)
+}
+dim(noRepsSummary)
+
+ggplot(noRepsSummary, aes(x = SexAnalysis, y = ICC, fill = Array))+
+  geom_boxplot()+
+  theme_classic()
+
+temp <- rbind(noRepsSummary,
+              data.frame(summaryLong[summaryLong$CpG %in% rownames(top450),],
+                         SexAnalysis = "All probes"))
+temp$SexAnalysis <- factor(temp$SexAnalysis, levels = c("All probes","450K","EPICv1","EPICv2"))
+
+a <- ggplot(temp, aes(x = SexAnalysis, y = ICC, fill = Array))+
+  geom_boxplot()+
+  theme_classic()+theme(legend.position = "none")
+b<- ggplot(temp, aes(x = SexAnalysis, y = IQR, fill = Array))+
+  geom_boxplot()+
+  theme_classic()+theme(legend.position = "none")
+c<- ggplot(temp, aes(x = SexAnalysis, y = sd, fill = Array))+
+  geom_boxplot()+
+  theme_classic()+theme(legend.position = "none")
+d<- ggplot(temp, aes(x = SexAnalysis, y = biasVarExplained, fill = Array))+
+  geom_boxplot()+
+  theme_classic()+theme(legend.position = "none")
+e <- ggplot(temp, aes(x = SexAnalysis, y = -log10(biasPval), fill = Array))+
+  geom_boxplot()+
+  theme_classic()+theme(legend.position = "none")
+
+library(gridExtra)
+grid.arrange(a,b,c,d,e)
+
+
+fullReps <- sexAssoc$K450[sexAssoc$K450 %in% sexAssoc$EPICv1]
+fullReps <- fullReps[fullReps %in% sexAssoc$EPICv2]
+dim(fullReps)
+fullReps <- data.frame(CpG = fullReps, Array = "All arrays")
+dim(fullReps)
+for(i in 1:nrow(fullReps)){
+  if(i == 1){fullRepsSummary <- data.frame()}
+  if(i %% 20 == 0){print(i)}
+  dat <- summaryLong[summaryLong$CpG == fullReps$CpG[i],]
+  dat$SexAnalysis <- fullReps$Array[i]
+  #dat <- dat[dat$Array == noReps$Array[i],]
+  fullRepsSummary <- rbind(fullRepsSummary, dat)
+  rm(dat)
+}
+fullRepsSummary$SexAnalysis <- "Replicated"
+temp2 <- rbind(temp, fullRepsSummary)
+
+temp2$SexAnalysis <- factor(temp2$SexAnalysis, 
+                            levels = c("All probes","Replicated","450K","EPICv1","EPICv2"))
+
+a <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =ICC))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Intraclass correlation coefficient (ICC)")
+b <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =IQR))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Interquartile Range (IQR)")
+c <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =mean))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Mean DNA methylation")
+d <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =sd))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Standard deviation of DNA methylation")
+e <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =biasVarExplained))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Variance explained by array")+
+  ylim(0,0.1)
+f <- ggplot(temp2[!temp2$SexAnalysis=="All probes",], 
+            aes(x= SexAnalysis, fill = Array, y =-log10(biasPval)))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("-log10(p-value of array bias)")
+
+grid.arrange(a,b,c,d,e,f)
+
+summaryLong[1:5,]
+```
+
+*Investigating biases of sex-array*
+```{r}
+sexByArray1 <- list("SexOnly" = rownames(topSex),
+                    "Sex-EPICv1" = rownames(topSexV1), 
+                    "Sex-EPICv2" = rownames(topSexV2))
+sexByArray <- rbind(data.frame(CpG = sexByArray1$SexOnly, Analysis = "Sex only"),
+                    data.frame(CpG = sexByArray1$`Sex-EPICv1`, Analysis = "Sex-EPICv1"),
+                    data.frame(CpG = sexByArray1$`Sex-EPICv2`, Analysis = "Sex-EPICv2"))
+length(rownames(topSexV2))
+for(i in 1:nrow(sexByArray)){
+  if(i == 1){sexByArraySummary <- data.frame()}
+  if(i %% 50 == 0){print(i)}
+  dat <- summaryLong[summaryLong$CpG == sexByArray$CpG[i],]
+  dat$SexAnalysis <- sexByArray$Analysis[i]
+  #dat <- dat[dat$Array == noReps$Array[i],]
+  sexByArraySummary <- rbind(sexByArraySummary, dat)
+  rm(dat)
+}
+head(sexByArraySummary)
+
+temp <- rownames(topSex)[!rownames(topSex) %in% rownames(topSexV1)]
+temp <- temp[!temp %in% rownames(topSexV2)]
+sexByArraySummary2 <- rbind(sexByArraySummary[sexByArraySummary$CpG %in% temp &
+                                                sexByArraySummary$SexAnalysis == "Sex only",],
+                            sexByArraySummary[sexByArraySummary$SexAnalysis == "Sex-EPICv1",],
+                            sexByArraySummary[sexByArraySummary$SexAnalysis == "Sex-EPICv2",])
+
+a <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =ICC))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Intraclass correlation coefficient (ICC)")
+b <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =IQR))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Interquartile Range (IQR)")
+c <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =mean))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Mean DNA methylation")
+d <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =sd))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Standard deviation of DNA methylation")
+e <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =biasVarExplained))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("Variance explained by array")+
+  ylim(0,0.1)
+f <- ggplot(sexByArraySummary2, aes(x= SexAnalysis, fill = Array, y =-log10(biasPval)))+
+  geom_boxplot(alpha=0.77)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T)+
+  theme(legend.position = "none")+
+  xlab("")+
+  ylab("-log10(p-value of array bias)")
+
+library(gridExtra)
+grid.arrange(a,b,c,d,e,f)
+```
+
+```{r}
+library(UpSetR)
+
+test <- rbind(fullReps, noReps, data.frame(CpG = sexByArray$CpG, Array = sexByArray$Analysis))
+
+upset(test, nsets = 6, number.angles = 30, point.size = 3.5, line.size = 2, 
+      mainbar.y.label = "Genre Intersections", sets.x.label = "Movies Per Genre", 
+      text.scale = c(1.3, 1.3, 1, 1, 2, 0.75))
+ggvenn(sexByArray1)
+
+upset(fromList(c(sexAssoc, sexByArray1)), nsets=7, order.by = c("freq"),
+      sets.bar.color = "black", line.size = .7, nintersects = 20, 
+      sets = rev(c("SexOnly","Sex-EPICv1","Sex-EPICv2","K450","EPICv1","EPICv2")), 
+      keep.order = T, point.size = 3)
+#think of a better way to show this - maybe concatenate into 
+ # sex-only
+ # sex-by-array biased
+ # replicated 
+ # not replicated 
+
+test2 <- list(SexOnly = 
+                unique(sexByArraySummary2$CpG[sexByArraySummary2$SexAnalysis=="Sex only"]),
+              ArrayBiased = 
+                unique(sexByArraySummary2$CpG[!sexByArraySummary2$SexAnalysis=="Sex only"]),
+              Replicated = 
+                unique(temp2$CpG[temp2$SexAnalysis=="All arrays"]),
+              NotReplicated = 
+                unique(temp2$CpG[!temp2$SexAnalysis %in%c("All arrays","All probes")]) 
+              )
+
+upset(fromList(test2), point.size = 3, order.by = c("freq"))
+
+
+```
+
+
+
+
+*runBias - this runs on the cluster, split into 110 jobs*
+```{}
+library(dplyr)
+library(tidyr)
+library(broom)
+library(purrr)
+library(furrr)
+
+# Preallocate data frames
+n <- 1000  # or length(allCpGs)
+
+allCpGs2 <- allCpGs[1:1000]  # Replace with your actual data
+
+# Parallelize the loop for better performance
+fullBeta2 <- fullBeta[1:1000,]
+
+t <- Sys.time()
+results <- future_map(allCpGs2, ~{
+  x = .x
+  dat <- fullBeta2[fullBeta2$rowname == x, ]
+  dat <- suppressMessages(melt(dat))
+  dat$Array <- as.factor(strsplit2(dat$variable, "_")[, 2])
+  dat$SampleID <- as.factor(strsplit2(dat$variable, "_")[, 1])
+  dat <- na.omit(dat)
+  if (length(unique(dat$Array)) == 1) {
+    return(NULL)
+  }
+  a <- aov(value ~ Array + SampleID, data = dat)
+  b <- broom::tidy(a)
+  b$CpG <- x
+  b$var_explained <- b$sumsq/sum(b$sumsq)
+
+  c <- data.frame(TukeyHSD(a)$Array)
+  c$CpG <- x 
+  c$Contrast <- rownames(c)
+
+  list(anova = b[1, ], tukey = c)
+})
+Sys.time()-t
+
+
+# Combine the results
+anovaSummary <- data.frame()
+anovaTukey <- data.frame()
+
+for (i in seq_along(allCpGs2)) {
+  if (!is.null(results[[i]]$anova)) {
+    anovaSummary <- rbind(anovaSummary, results[[i]]$anova)
+  }
+  if (!is.null(results[[i]]$tukey)) {
+    anovaTukey <- rbind(anovaTukey, results[[i]]$tukey)
+  }
+}
+
+Sys.time()-t
+
+# Print the summary
+dim(anovaSummary)
+dim(anovaTukey)
+
+nrow(fullBeta)/1000 * 1.62/60 #29 hours with sampleID
+nrow(fullBeta)/1000 * 1.62/60 #29 hours with sampleID
+nrow(fullBeta)/1000 * 54/60/60 #16 hours without SampleID
+
+1080100/1000 * 3/60
+
+seq(1, nrow(fullBeta), length.out = 11)
+
+for(i in 1:1000){
+  if(nrow(fullBeta) %% i ==0){print(i)}
+}
+nrow(fullBeta)/11
+
+seq(1, nrow(fullBeta), by = 98269)
+
+```
+
+
+*function for graphing density plots*
+```{}
+dens_at_mean <- function(d)
+{
+ # Copied from a StackOverflow solution by whuber:
+ #http://stats.stackexchange.com/questions/32093/
+ #how-to-draw-mean-median-and-mode-lines-in-r-that-end-at-density
+  dens <- density(d$beta)
+  n <- length(dens$y)
+  dx <- mean(diff(dens$x))                  # Typical spacing in x
+  y.unit <- sum(dens$y) * dx                # Check: this should integrate to 1
+  dx <- dx / y.unit                         # Make a minor adjustment
+  x.mean <- sum(dens$y * dens$x) * dx
+  y.mean <- dens$y[length(dens$x[dens$x < x.mean])]
+  data.frame(mean = x.mean, est.dens = y.mean)
+}
+```
+
+
+*Example of shiny graphs*
+```{}
+
+long450 <- reshape::melt(beta450K)
+long450$Array <- "450K"
+longV1 <- reshape::melt(betaV1)
+longV1$Array <- "EpicV1"
+longV2 <- reshape::melt(betaV2)
+longV2$Array <- "EpicV2"
+
+betasLong <- rbind(long450, longV1, longV2)
+betasLong$SampleID <- limma::strsplit2(betasLong$X2, "_")[,1]
+colnames(betasLong)[1:3] <- c("CpG","ID","beta")
+rm(long450, longV1, longV2)
+dim(betasLong)
+#save(betasLong, file ="betasLong_2023-10-18.Rdata")
+load("betasLong_2023-10-18.Rdata")
+
+
+plotData <- betasLong[betasLong$CpG == "cg25487775",]
+plotData$Array <- factor(plotData$Array, levels = c("450K","EpicV1","EpicV2"))
+plotMedian <- plotData %>% group_by(Array) %>% do(dens_at_mean(.))
+plotData %>% group_by(Array) %>% summarize(med = median(beta))
+
+a <- ggplot(plotData, aes(x = beta, fill = Array, col = Array, drop=F))+
+  geom_density(alpha =0.37, size=2)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, end = 0.7, drop=F)+
+  scale_color_viridis(discrete=T, end = 0.7, drop=F)+
+  xlab("Beta value")+
+  ylab("Density")+
+  geom_segment(data = plotMedian, aes(x = mean, xend = mean, y = 0,
+                                    yend = est.dens, color = Array), size = 2)
+a
+
+b <- ggplot(plotData, aes(y = beta, x= Array, fill = Array, drop=F))+
+  geom_boxplot(alpha =0.6, width= 0.7, notch = T)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, end = 0.7, drop=F)+
+  scale_color_viridis(discrete=T, end = 0.7, drop=F)+
+  ylab("Beta value")+
+  xlab("Array")
+b
+gridExtra::grid.arrange(a,b)
+
+
+library(plotly)
+plotData
+plotDataWide <- tidyr::pivot_wider(plotData, names_from = Array, values_from= beta, id_cols = SampleID)
+colnames(plotDataWide)[2] <- "K450"
+plot_ly(plotDataWide, x = ~K450, y = ~EpicV1, z = ~EpicV2)
+
+plotDataWide
+
+#correlations summary
+summaryPlot <- summaryLong[summaryLong$CpG =="cg00213748",]
+t(summaryPlot)
+summaryPlotCor <- summaryPlot[,c(2,grep("corr", colnames(summaryPlot)))]
+summaryPlotCor <- reshape::melt(summaryPlotCor)
+summaryPlotCor$CorrType <- "Pearson"
+summaryPlotCor$CorrType[grep("_sp", summaryPlotCor$variable)] <- "Spearman"
+summaryPlotCor$Contrast <- gsub("corr_","", gsub("_sp","", summaryPlotCor$variable))
+summaryPlotCor$Contrast <- gsub("V1","Epic_V1", gsub("V2", "Epic_V2", summaryPlotCor$Contrast))
+summaryPlotCor$Contrast <- factor(summaryPlotCor$Contrast, 
+                                  levels = c("450K","Epic_V1","Epic_V2"))
+
+ggplot(summaryPlotCor, aes(x = Contrast, y = Array, fill = value))+
+  geom_tile()+
+  theme_classic()+
+  facet_wrap(~CorrType)+
+  scale_fill_gradient(low="blue", high = "red","")+
+  #scale_fill_gradient2(low="blue", mid="white", high="red", midpoint=0, limits=c(-1,1),"")+
+  xlab("")+
+  ylab("")+
+  geom_text(aes(label = round(value,3)))
+
+
+```
+
+*trying to regress array*
+```{}
+plotData <- betasLong[betasLong$CpG == "cg00213748",]
+#summary(lm(beta~Array+SampleID, data = plotData))
+summary(aov(beta~Array+SampleID, data = plotData))
+TukeyHSD(aov(beta~Array+SampleID, data = plotData))$Array
+
+
+head((summaryLong[summaryLong$corr_V1>0.99 & summaryLong$corr_V2>0.99 & summaryLong$corr_450K>0.99,]))
+
+allCpGs <- as.character(unique(betasLong$CpG))
+
+
+# anovaSummary <- lapply(allCpGs[1:100], function(x){
+#   dat <- betasLong[betasLong$CpG==x,]
+#   if(length(unique(dat$Array))==1) {next()}
+#   a <- aov(beta~Array, data = dat)
+#   a$CpG <- x
+#   broom::tidy(a)
+# })
+
+# t <- Sys.time()
+# for(i in 1:10){#length(allCpGs)){
+#   if(i ==1){anovaSummary <- data.frame(); anovaTukey <- data.frame()}
+#   if(i %%10 ==0){print(i)}
+#   x = allCpGs[i]
+#   dat <- betasLong[betasLong$CpG==x,]
+#   if(length(unique(dat$Array))==1) {next()}
+#   a <- aov(beta~Array+SampleID, data = dat)
+#   b <- broom::tidy(a)
+#   b$CpG <- x
+#   anovaSummary <- rbind(anovaSummary, 
+#                         b[1,])
+#   c <- data.frame(TukeyHSD(a)$Array)
+#   c$CpG <- x 
+#   c$Contrast <- rownames(c)
+#   anovaTukey <- rbind(anovaTukey, 
+#                       c)
+# }
+# print(Sys.time() - t)
+# anovaTukey[anovaTukey$p.adj<0.05 & anovaTukey$Contrast=="EpicV1-450K",]
+# anovaSummary[anovaSummary$p.value<0.05,]
+# anovaSummary
+# 
+# allCpGs[7]
+# 
+# dim(betasLong)
+
+
+```

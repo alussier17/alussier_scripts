@@ -1,0 +1,288 @@
+---
+title: "DCHS technical SNP differences"
+output: html_document
+date: "2023-03-24"
+author: Alexandre Lussier
+editor_options: 
+  chunk_output_type: console
+---
+## Differences in SNPs between Illumina DNA methylation arrays
+### Summary
+This document outlines the differences in SNP probes between the 450K, EPICv1 and EPICv2 arrays. These differences were first identified when confirming sample matches across arrays. 
+
+### Dataset
+This dataset is composed of blood DNAm profiles collected at age 5 for 30 participants from the Drakenstein Child Health Study (15F; 15M). DNAm for each participant was measured on the 450K, EPICv1, and EPICv2 arrays. Six replicates were included on the 450K array (36 samples total), and two replicated were included on the EPICv1 and EPICv2 arrays (32 samples each) for a total of 100 samples. 
+
+### Processing
+Initial processing was performed using meffil 1.3.4 (Feb 24, 2023) - see DCHS_technical_preprocessing_clean_2023-03-22.Rmd. Only probes common between all three arrays were included in the processed dataset (57 unique SNPs). 
+
+```{r setup, include=FALSE, echo=F}
+library(meffil)
+
+#if giving sva error
+#BiocManager::install("sva", force = T)
+#then remove the other edgeR package
+
+options(mc.cores=1)
+#setwd("/data/js95/DunnLab/alussier/DCHS_technical/")
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Analysis/")
+load("Preprocessing/2023-03-21/meffil_qc_objects_commonAll_2023-03-21.Rdata")
+samplesheet <- read.csv("Preprocessing/2023-03-21/DCHS_technical_samplesheet_corrected_2023-03-21.csv")
+
+```
+
+```{r getting genotypes, include=F, echo=F}
+calculate.beta.genotypes <- function(snp.betas, centers=c(0.2,0.5,0.8)) {
+    x <- t(apply(snp.betas,1,function(x) {
+        tryCatch(kmeans(x, centers=centers)$cluster - 1,
+                 error=function(e) {
+                     cluster <- rep(1,ncol(snp.betas))
+                     cluster[which(x < min(centers))] <- 0
+                     cluster[which(x > max(centers))] <- 2
+                     cluster
+                 })
+    }))
+    dimnames(x) <- dimnames(snp.betas)
+    x
+}
+
+genotypes <- meffil.snp.betas(qc.objects)
+identical(names(genotypes[[1]]), names(genotypes[[2]])) #T
+identical(names(genotypes[[1]]), names(genotypes[[36]])) #T
+identical(names(genotypes[[1]]), names(genotypes[[37]])) #False when reaches V1
+identical(names(genotypes[[37]]), names(genotypes[[38]])) #T
+identical(names(genotypes[[37]]), names(genotypes[[68]])) #T
+identical(names(genotypes[[37]]), names(genotypes[[69]])) #False when reaches V2
+identical(names(genotypes[[69]]), names(genotypes[[70]])) #T
+identical(names(genotypes[[69]]), names(genotypes[[100]])) #T
+
+
+geno450 <- do.call(rbind, genotypes[1:36])
+
+genoV1 <- do.call(rbind, genotypes[37:68])
+genoV1 <- genoV1[,match(colnames(geno450), colnames(genoV1))]
+identical(colnames(geno450), colnames(genoV1)) #TRUE
+
+genoV2 <- do.call(rbind, genotypes[69:100])
+genoV2[,colnames(genoV2) %in% colnames(genoV2)[duplicated(colnames(genoV2))]]
+genoV2 <- genoV2[,!duplicated(colnames(genoV2))]
+genoV2 <- genoV2[,match(colnames(genoV1), colnames(genoV2))]
+identical(colnames(genoV1), colnames(genoV2)) #TRUE
+
+genotypes <- rbind(geno450, genoV1, genoV2)
+rownames(genotypes) <- samplesheet$ID[match(rownames(genotypes), samplesheet$Sample_Name)]
+genotypes <- genotypes[order(rownames(genotypes)),]
+
+genotypes2 <- calculate.beta.genotypes(genotypes)
+
+rm(geno450, genoV1, genoV2, calculate.beta.genotypes,qc.objects)
+
+```
+
+### Main differences between arrays
+#### Clustering of participants varies between arrays
+Examining the SNP profiles for all samples across arrays (replicates included), results in 57 SNPs. The SNP profiles for the same samples are perfectly matched for 450K and EPICv1, but not with EPICv1. The participants mostly cluster with themselves, but show distinct profiles.
+```{r sample clustering raw, include=T, echo=F, fig.width=10}
+d <- dist(genotypes2, method = "euclidean")
+hc1 <- hclust(d, method = "complete" )
+plot(hc1, cex = 0.6, hang = 0, main = "57 common SNPs between arrays")
+
+
+pcs <- prcomp(t(genotypes2),center = T)
+
+
+pcsMelt <- data.frame(ID = rownames(pcs$rotation),
+                      PC1 = pcs$rotation[,1],
+                      PC2 = pcs$rotation[,2],
+                      PC3 = pcs$rotation[,3],
+                      PC4 = pcs$rotation[,4],
+                      PC5 = pcs$rotation[,5])
+pcsMelt$sample <- limma::strsplit2(pcsMelt$ID, "_")[,1]
+pcsMelt$array <- limma::strsplit2(gsub("_rep", "", pcsMelt$ID), "_")[,2]
+
+ggplot(pcsMelt, aes(x = PC1, y = PC2, col = array))+
+  #geom_point(size = 3)+
+  theme_classic()+
+  geom_text(aes(label = ID))+
+  ggtitle("PCA of 57 SNPs (0,1,2 calls)")
+
+```
+
+#### A subset of SNPs drives differences between arrays
+Digging deeper into the differences between 450K/EPICv1 and EPICv2 samples reveals a subset of SNPs that tend to show differences between cohorts. 
+```{r genoDiff, include=F, echo =F}
+genotypes3 <- data.frame(genotypes2)
+genotypes3$sampleID <- limma::strsplit2(rownames(genotypes3), "_")[,1]
+
+for(i in unique(genotypes3$sampleID)){
+  if(i == unique(genotypes3$sampleID)[1]){genoDiff <- data.frame() }
+  print(i)
+  temp <- genotypes3[genotypes3$sampleID == i,]
+  
+  if(length(grep("_rep",rownames(temp))) >0){
+    temp <- temp[-grep("_rep",rownames(temp)),]
+  }
+  a <- data.frame(ID = i, 
+                  K450_V1 = sum(temp[grep("450K", rownames(temp)),] != 
+                                     temp[grep("_V1", rownames(temp)),]),
+                  K450_V2 = sum(temp[grep("450K", rownames(temp)),] != 
+                                     temp[grep("_V2", rownames(temp)),]))
+  if(a$K450_V2>0){
+    a <- data.frame(a, 
+                    rsID = paste(colnames(temp)[temp[grep("450K", rownames(temp)),] != 
+                                             temp[grep("_V2", rownames(temp)),]],
+                                 collapse = ", "))
+  }
+  
+  genoDiff <- rbind(genoDiff, a)
+  
+}
+dim(genoDiff)
+
+```
+
+```{r tables of samples and snps, include =T, echo=F}
+cat("These are the number of SNPs that are different between arrays\n")
+genoDiff[,1:3]
+
+
+cat("These are the 18 SNPs that are showing differences between arrays\n")
+badSNPsummary<- table(c(limma::strsplit2(c(as.character(genoDiff$rsID)), ", "))) #18 SNPs wrong in 11-26 samples
+badSNPsummary <- badSNPsummary[!names(badSNPsummary)==""]
+badSNPsummary <- data.frame(badSNPsummary)
+colnames(badSNPsummary) <- c("rsID","Number_participants")
+badSNPsummary
+
+```
+
+#### What are these strange SNPs?
+Investigating the SNPs that are different between arrays using the manifest file. It seems that the probes that don't fully match in EPICv2 have issues with the color channel, next base, or probe sequence, which could explain why their genotype calls are slightly different from the 450K and EPICv1.
+```{r manifest check, echo=F, include=F}
+manifest <- data.table::fread("MethylationEPIC v2.0 Files/EPIC-8v2-0_A1.csv", verbose = F, skip=7)
+head(manifest)
+SNPs <- manifest[grep("rs", manifest$IlmnID),]
+SNPs <- SNPs[SNPs$EPICv1_Loci != "" & SNPs$Methyl450_Loci !="",]
+SNPs$Target <- strsplit2(SNPs$IlmnID,"_")[,1]
+SNPs[SNPs$Target %in% SNPs$Target[duplicated(SNPs$Target)],]
+dim(SNPs) #60 SNPs with 3 duplicates
+SNPs <- SNPs[!duplicated(SNPs$Target),]
+SNPs$BAD_SNP <- ifelse(SNPs$Target %in% badSNPsummary$rsID, "Problematic","No issue")
+
+
+#Checking V1 
+manifestV1 <- data.table::fread("MethylationEPIC v2.0 Files/infinium-methylationepic-v-1-0-b5-manifest-file.csv", skip=7, verbose=F)
+SNPsV1 <- manifestV1[match(SNPs$Target, manifestV1$IlmnID),]
+dim(SNPsV1) #57 SNPs
+SNPs$Color_Channel_mismatch <- ifelse(SNPs$Color_Channel == SNPsV1$Color_Channel, "Match","Mismatch")
+SNPs$Next_Base_mismatch <- ifelse(SNPs$Next_Base == SNPsV1$Next_Base, "Match","Mismatch")
+SNPs$Bad_metric <- ifelse(SNPs$Next_Base_mismatch =="Mismatch" | 
+                            SNPs$Color_Channel_mismatch =="Mismatch" | 
+                            SNPs$Manifest_probe_match ==FALSE ,"Bad","Good")
+SNPs$All_bad_metric <- ifelse(SNPs$Next_Base_mismatch =="Mismatch" & 
+                            SNPs$Color_Channel_mismatch =="Mismatch" & 
+                            SNPs$Manifest_probe_match ==FALSE ,"Bad","Good")
+
+table(SNPs$BAD_SNP, SNPs$Color_Channel_mismatch)
+table(SNPs$BAD_SNP, SNPs$Next_Base_mismatch)
+table(SNPs$BAD_SNP, SNPs$Bad_metric)
+table(SNPs$BAD_SNP, SNPs$All_bad_metric)
+
+
+```
+
+
+```{r metrics of from manifest, include=T, echo=F}
+cat("Probes that don't match in EPICv2 are noted as problematic.\n
+    Probes that had no issues are noted as no issue.\n")
+
+cat("Checking whether the EPICv2 probe matches the 450K and EPICv1 probe (Manifest_probe_match):\n")
+table(SNPs$BAD_SNP, Probe_match = ifelse(SNPs$Manifest_probe_match ==T,"Match","Mismatch"))
+
+cat("Checking whether the EPICv2 Color Channel matches the 450K and EPICv1 probe:\n")
+table(SNPs$BAD_SNP, Color_channel= SNPs$Color_Channel_mismatch)
+
+cat("Checking whether the EPICv2 Next Base matches the 450K and EPICv1 probe:\n")
+table(SNPs$BAD_SNP, Next_Base = SNPs$Next_Base_mismatch)
+
+cat("Number of probes with all bad metrics:\n")
+table(SNPs$BAD_SNP, Metrics_all = SNPs$All_bad_metric)
+
+cat("Number of probes with any bad metrics:\n")
+table(SNPs$BAD_SNP, Metrics_any = SNPs$Bad_metric)
+
+
+```
+These look like potential filtering metrics, resulting in 36 SNPs that are without major issues (21 removed). 
+```{r snps to remove, echo=F, include=T}
+cat("Here are the SNPs to remove for future reference: \n")
+toremove <- SNPs$Target[SNPs$Bad_metric == "Bad"]
+sort(toremove)
+
+write.table(SNPs, file="~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Supplemental tables/SNP_annotation_2023-12-07.txt",sep="\t",quote=F, row.names=F, col.names=T)
+```
+
+
+#### Removing the bad SNPs
+```{r bad snp removal, echo=F, include=F }
+genotypes4 <- genotypes3[,!colnames(genotypes3) %in% toremove]
+
+
+for(i in unique(genotypes4$sampleID)){
+  if(i == unique(genotypes4$sampleID)[1]){genoDiff2 <- data.frame() }
+  print(i)
+  temp <- genotypes4[genotypes4$sampleID == i,]
+  
+  if(length(grep("_rep",rownames(temp))) >0){
+    temp <- temp[-grep("_rep",rownames(temp)),]
+  }
+  a <- data.frame(ID = i, 
+                  K450_V1 = sum(temp[grep("450K", rownames(temp)),] != 
+                                     temp[grep("_V1", rownames(temp)),]),
+                  K450_V2 = sum(temp[grep("450K", rownames(temp)),] != 
+                                     temp[grep("_V2", rownames(temp)),]))
+  if(a$K450_V2>0){
+    a <- data.frame(a, 
+                    rsID = paste(colnames(temp)[temp[grep("450K", rownames(temp)),] != 
+                                             temp[grep("_V2", rownames(temp)),]],
+                                 collapse = ", "))
+  }
+  
+  genoDiff2 <- rbind(genoDiff2, a)
+  
+}
+
+```
+
+Now that the bad SNPs are removed, we can check whether the samples cluster together and are identical. 
+```{r checking the data, include=T, echo=F, fig.width=10}
+d2 <- dist(genotypes4[,!colnames(genotypes4)=="sampleID"], method = "euclidean")
+hc2 <- hclust(d2, method = "complete" )
+plot(hc2, cex = 0.6, hang = 0, main = "Good SNPs only (36 SNPs)")
+
+
+pcs <- prcomp(t(genotypes4[,!colnames(genotypes4)=="sampleID"]),center = T)
+
+pcsMelt <- data.frame(ID = rownames(pcs$rotation),
+                      PC1 = pcs$rotation[,1],
+                      PC2 = pcs$rotation[,2],
+                      PC3 = pcs$rotation[,3],
+                      PC4 = pcs$rotation[,4],
+                      PC5 = pcs$rotation[,5])
+pcsMelt$sample <- limma::strsplit2(pcsMelt$ID, "_")[,1]
+pcsMelt$array <- limma::strsplit2(gsub("_rep", "", pcsMelt$ID), "_")[,2]
+
+ggplot(pcsMelt, aes(x = PC1, y = PC2, col = array))+
+  #geom_point(size = 3)+
+  theme_classic()+
+  geom_text(aes(label = ID))+
+  ggtitle("PCA of 36 good SNPs (0,1,2 calls)")
+
+cat("Are the samples identical? \n")
+genoDiff2
+cat("Yes they are! \n")
+
+```
+
+### Conclusions
+There are several SNP probes on the EPICv2 that have poor performance, resulting in sample mismatches at the SNP level. These should generally be filtered to avoid errors in SNP matching. 
+

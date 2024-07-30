@@ -1,0 +1,143 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-03-29"
+editor_options: 
+  chunk_output_type: console
+---
+
+*EPICv2 alone
+#use R4.1
+# MAKE SURE IT'S NOT THE MKL VERSION
+```{r setup}
+library(meffil) 
+
+#if giving sva error
+#BiocManager::install("sva", force = T)
+#BiocManager::install("edgeR", force = T)
+#then remove the other edgeR package
+
+options(mc.cores=1)
+setwd("/data/js95/DunnLab/alussier/DCHS_technical/")
+
+samplesheet<- read.csv("2023-03-21/DCHS_technical_samplesheet_corrected_2023-03-21.csv")
+samplesheet$Sample_Plate <- limma::strsplit2(gsub("_rep","", samplesheet$Sample_Group),"_")[,2]
+```
+
+*EPIC v2 alone*
+```{r}
+#QC
+qc.objects.V2 <- meffil.qc(samplesheet[samplesheet$Sample_Plate=="V2",], 
+                        cell.type.reference = "blood gse35069",
+                        verbose=T, featureset = "epic2")
+qc.summary.V2 <- meffil.qc.summary(qc.objects.V2, verbose=T)
+
+save(qc.objects.V2, file= "2023-03-28_epicV2/meffil_qc_objects_epic2_2023-03-28.Rdata")
+meffil.qc.report(qc.summary.V2, output.file = "2023-03-28_epicV2/QC_report_epic2_2023-03-28.html")
+
+#Normalization
+norm.objects.V2 <- meffil.normalize.quantiles(qc.objects.V2, number.pcs=5, verbose=T)
+save(norm.objects.V2, file="2023-03-28_epicV2/meffil_norm_objects_epic2_2023-03-28.Rdata")
+
+norm.dataset.V2 <- meffil.normalize.samples(norm.objects.V2,
+                                        just.beta=F, 
+                                        cpglist.remove=qc.summary.V2$bad.cpgs$name,
+                                        verbose=T)
+save(norm.dataset.V2, file="2023-03-28_epicV2/meffil_norm_dataset_epic2_2023-03-28.Rdata")
+
+#norm report
+betaV2 <- meffil.get.beta(norm.dataset.V2$M, norm.dataset.V2$U)
+save(betaV2, file="2023-03-28_epicV2/dchsTech_betas_epic2_2023-03-28.Rdata")
+
+pcs <- meffil.methylation.pcs(betaV2, sites=meffil.get.autosomal.sites("epic2"), verbose=T)
+
+parameters <- meffil.normalization.parameters(norm.objects.V2)
+parameters$batch.threshold <- 0.01
+
+norm.summary.V2 <- meffil.normalization.summary(norm.objects=norm.objects.V2,
+                                             pcs=pcs,
+                                             parameters=parameters, verbose=T)
+meffil.normalization.report(norm.summary.V2,
+                            output.file="2023-03-28_epicV2/norm_report_epic2_2023-03-28.html")
+
+rm(norm.dataset.V2, betaV2, norm.objects.V2, qc.objects.V2, qc.summary.V2, norm.summary.V2, pcs,parameters)
+```
+
+*EPIC V1 alone*
+```{r}
+#QC
+qc.objects.V1 <- meffil.qc(samplesheet[samplesheet$Sample_Plate=="V1",], 
+                        cell.type.reference = "blood gse35069",
+                        verbose=T, featureset = "epic")
+qc.summary.V1 <- meffil.qc.summary(qc.objects.V1, verbose=T)
+
+save(qc.objects.V1, file = "2023-03-28_epicV1/meffil_qc_objects_epic1_2023-03-28.Rdata")
+meffil.qc.report(qc.summary.V1, output.file = "2023-03-28_epicV1/QC_report_epic1_2023-03-28.html")
+
+#Normalization
+norm.objects.V1 <- meffil.normalize.quantiles(qc.objects.V1, number.pcs=5, verbose=T)
+save(norm.objects.V1, file="2023-03-28_epicV1/meffil_norm_objects_epic1_2023-03-28.Rdata")
+
+norm.dataset.V1 <- meffil.normalize.samples(norm.objects.V1,
+                                        just.beta=F, 
+                                        cpglist.remove=qc.summary.V1$bad.cpgs$name,
+                                        verbose=T)
+save(norm.dataset.V1, file="2023-03-28_epicV1/meffil_norm_dataset_epic1_2023-03-28.Rdata")
+
+#norm report
+betaV1 <- meffil.get.beta(norm.dataset.V1$M, norm.dataset.V1$U)
+save(betaV1, file="2023-03-28_epicV1/dchsTech_betas_epic1_2023-03-28.Rdata")
+
+pcs <- meffil.methylation.pcs(betaV1, sites=meffil.get.autosomal.sites("epic"), verbose=T)
+
+parameters <- meffil.normalization.parameters(norm.objects.V1)
+parameters$batch.threshold <- 0.01
+
+norm.summary.V1 <- meffil.normalization.summary(norm.objects=norm.objects.V1,
+                                             pcs=pcs,
+                                             parameters=parameters, verbose=T)
+meffil.normalization.report(norm.summary.V1,
+                            output.file="2023-03-28_epicV1/norm_report_epic1_2023-03-28.html")
+
+rm(norm.dataset.V1, betaV1, norm.objects.V1, qc.objects.V1, qc.summary.V1, norm.summary.V1, pcs,parameters)
+```
+
+*EPIC 450K alone*
+```{r}
+#QC
+qc.objects.450K <- meffil.qc(samplesheet[samplesheet$Sample_Plate=="450K",], 
+                        cell.type.reference = "blood gse35069",
+                        verbose=T, featureset = "450k")
+qc.summary.450K <- meffil.qc.summary(qc.objects.450K, verbose=T)
+
+save(qc.objects.450K, file = "2023-03-28_450K/meffil_qc_objects_450K_2023-03-28.Rdata")
+meffil.qc.report(qc.summary.450K, output.file = "2023-03-28_epic450K/QC_report_450K_2023-03-28.html")
+
+#Normalization
+norm.objects.450K <- meffil.normalize.quantiles(qc.objects.450K, number.pcs=5, verbose=T)
+save(norm.objects.450K, file="2023-03-28_450K/meffil_norm_objects_450K_2023-03-28.Rdata")
+
+norm.dataset.450K <- meffil.normalize.samples(norm.objects.450K,
+                                        just.beta=F, 
+                                        cpglist.remove=qc.summary.450K$bad.cpgs$name,
+                                        verbose=T)
+save(norm.dataset.450K, file="2023-03-28_epic450K/meffil_norm_dataset_450K_2023-03-28.Rdata")
+
+#norm report
+beta450K <- meffil.get.beta(norm.dataset.450K$M, norm.dataset.450K$U)
+save(beta450K, file="2023-03-28_450K/dchsTech_betas_450K_2023-03-28.Rdata")
+
+pcs <- meffil.methylation.pcs(beta450K, sites=meffil.get.autosomal.sites("450k"), verbose=T)
+
+parameters <- meffil.normalization.parameters(norm.objects.450K)
+parameters$batch.threshold <- 0.01
+
+norm.summary.450K <- meffil.normalization.summary(norm.objects=norm.objects.450K,
+                                             pcs=pcs,
+                                             parameters=parameters, verbose=T)
+meffil.normalization.report(norm.summary.450K,
+                            output.file="2023-03-28_450K/norm_report_450K_2023-03-28.html")
+
+rm(norm.dataset.450K, beta450K, norm.objects.450K, qc.objects.450K, 
+   qc.summary.450K, norm.summary.450K, pcs,parameters)
+```

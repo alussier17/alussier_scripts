@@ -1,0 +1,1127 @@
+---
+title: "DCHS technical report"
+author: "Alexandre Lussier"
+date: "April 5, 2023"
+output: html_document
+---
+The goal of this report is to assess the main differences between the EpicV2 and EpicV1 arrays to inform our decision of which array to use in the DCHS analyses of DNA methylation (DNAm) at age 1,3,5. Some DNAm data in cord blood at birth have previously been generated using the 450K for the DCHS cohort.  
+The EpicV2 array is an extension of the EpicV1, measuring 935,000 CpGs compared to the 860,000 on the EpicV1. These new CpGs provide additional coverage of cancer-related CpGs, enhancers, CpG islands, and exons.  
+
+```{r true setup, echo=F, message=F, include=F}
+library(dplyr)
+library(ggplot2)
+library(meffil)
+library(reshape)
+library(viridis)
+library(corrplot)
+library(limma)
+library(ggvenn)
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Analysis/")
+
+psych
+
+```
+
+## 1. Basic differences in CpGs measured across arrays
+
+### Overlapping CpGs between arrays
+Basic analysis showing how many CpGs overlap between arrays, based on the manifest files.  
+```{r venn of overlaps, echo=F, message=F, fig.width=5, fig.width=5}
+feat450 <- meffil.get.features("450k")
+featEpic1 <- meffil.get.features("epic")
+featEpic2 <- meffil.get.features("epic2")
+#table(feat450$chromosome[!feat450$name %in% featEpic2$name])
+
+commonAll <- feat450[feat450$name %in% featEpic1$name &
+                       feat450$name %in% featEpic2$name,]
+
+overlaps <- list("450K" = feat450$name,
+                 "Epic V1" = featEpic1$name,
+                 "Epic V2" = featEpic2$name)
+ggvenn(overlaps,
+       fill_color = viridis(n=3, end= 0.8),
+       #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+       stroke_size=0.5)
+cat("\n")
+```
+  
+Some CpGs from the 450K are back on the EpicV2 array! However, there is a substantial net loss compared to the EpicV1. 
+
+### Overlap between arrays and previous associations
+This step determines how many CpGs from our prior analyses will be lost by switching to different arrays.  
+```{r overlaps associations, echo=F, message=F, fig.width=10, fig.height=5}
+### checking overlap with other published loci ###
+#loading in compiled list of CpGs from data difff, aim 3, and mediation (from MR project)
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - MR/Analysis/Data/cpgsMR_2023-02-21.Rdata")
+
+cpgsMR$Analysis <- ifelse(cpgsMR$Age =="7", "Data diff", 
+                     ifelse(cpgsMR$Age =="15", "Aim 3", "Mediation"))
+cpgsMR$Age[cpgsMR$Age =="Mediation"] <- 7
+cpgsMR$Age <- as.numeric(cpgsMR$Age)
+
+#adding current meta-analysis CpGs
+load("~/Dropbox (Partners HealthCare)/Dunn_shared/OneMind/SLCMA-Bristol-MGH/Analyses/Alex/metaFullExact_withEwas_2022-06-09.Rdata")
+metaHits <- metaFullExact[metaFullExact$`max-t` <1e-5,]
+rm(metaFullExact)
+
+#adding Jessie CpGs
+jessie <- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC- Russell Sage/Paper Draft - SES to DNAm/SEP-DNAm_hits_2023-02-28.csv", skip=1)
+
+publishedCpGs <- rbind(cpgsMR,
+                       data.frame(CpG = metaHits$CpG,
+                                  Adversity = metaHits$Adversity,
+                                  Model = metaHits$Timing,
+                                  Timing = metaHits$Timing,
+                                  Age = 7,
+                                  Analysis = "Meta-analysis"),
+                       data.frame(CpG = jessie$CpG,
+                                  Adversity = jessie$Adversity,
+                                  Model = jessie$Timing,
+                                  Timing = jessie$Timing,
+                                  Age = 7,
+                                  Analysis = "SEP-DNAm"))
+rm(cpgsMR, jessie, metaHits)
+publishedCpGs$CpG <- as.character(publishedCpGs$CpG)
+
+overlaps2 <- list("450K" = overlaps$`450K`,
+                  "Epic V1" = overlaps$`Epic V1`,
+                  "Epic V2" = overlaps$`Epic V2`,
+                  "Adv-DNAm (age 7)" = publishedCpGs$CpG[publishedCpGs$Analysis=="Data diff"],
+                  "Adv-DNAm (age 15)" = publishedCpGs$CpG[publishedCpGs$Analysis=="Aim 3"],
+                  "Mediation (age 7)" = publishedCpGs$CpG[publishedCpGs$Analysis=="Mediation"],
+                  "SEP-DNAm (age 7)" = publishedCpGs$CpG[publishedCpGs$Analysis=="SEP-DNAm"],
+                  "Meta-analysis" = publishedCpGs$CpG[publishedCpGs$Analysis=="Meta-analysis"])
+
+for(i in 4:8){
+  if(i==4){summaryOverlap <- data.frame()}
+  dat <- overlaps2[[i]]
+  all3 <- sum(dat %in% overlaps2[[1]] &
+                dat %in% overlaps2[[2]] &
+                dat %in% overlaps2[[3]])
+  epic1_450 <- sum(dat %in% overlaps2[[1]] &
+                     dat %in% overlaps2[[2]] &
+                     ! dat %in% overlaps2[[3]])
+  epic2_450 <- sum(dat %in% overlaps2[[1]] &
+                     ! dat %in% overlaps2[[2]] &
+                     dat %in% overlaps2[[3]])
+  epics <- sum(! dat %in% overlaps2[[1]] &
+                 dat %in% overlaps2[[2]] &
+                 dat %in% overlaps2[[3]])
+  
+  temp <- data.frame(Analysis = names(overlaps2[i]),
+                     Total = length(dat),
+                     all = all3,
+                     Epic1_450k = epic1_450,
+                     Epic2_450k = epic2_450,
+                     Epic1_Epic2 = epics)
+  temp$Lost <- temp$Total - sum(temp[,3:6])
+  summaryOverlap <- rbind(summaryOverlap, temp)
+  rm(temp, all3, epic1_450, epic2_450, epics,i, dat)
+}
+#head(summaryOverlap)
+summaryOverlapMelt <- melt(summaryOverlap, id.vars = c("Analysis","Total"))
+summaryOverlapMelt$Percent <- (summaryOverlapMelt$value/summaryOverlapMelt$Total)*100
+summaryOverlapMelt$Name <- paste0(summaryOverlapMelt$Analysis,"\n",summaryOverlapMelt$Total," CpGs")
+summaryOverlapMelt$Name <- factor(summaryOverlapMelt$Name, levels = unique(summaryOverlapMelt$Name))
+
+ggplot(summaryOverlapMelt, aes(x = Name, y= Percent, fill = variable))+
+  geom_bar(stat="identity", position="dodge", alpha =0.77, col = "black")+
+  scale_fill_viridis(discrete=T, "On which array:",
+                     labels = c("All arrays","450K + EpicV1","450K + EpicV2",
+                                "EpicV1 + EpicV2","450K only"))+
+  theme_classic()+
+  geom_text(aes(label = gsub(51, 50, gsub(0,"",gsub(50, 51, value)))),
+    #label = gsub(0,"",round(Percent,1))), 
+            position=position_dodge(w=0.9), vjust =-0.5)+
+  ylab("Percent of CpGs")+
+  ylim(0,100)+
+  xlab("Analysis")+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size =12),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12))
+
+rm(feat450, featEpic1, featEpic2, 
+   overlaps, overlaps2, publishedCpGs, 
+   summaryOverlap, summaryOverlapMelt)
+```
+We lose some more CpGs when moving to EpicV2, but not that many.  
+
+
+
+## 2. CpG-level correlations and metrics
+Here, we investigated the quality of probes found on the EpicV2 array compared to the 450K and EpicV1 arrays. This step uses data that were pre-processed **separately** for each array. All data shown here were preprocessed and normalized using the _meffil_ pipeline.  
+```{r setup, include=F, echo=F}
+samplesheet <- data.table::fread("Preprocessing/2023-03-21/DCHS_technical_samplesheet_corrected_2023-03-21.csv")
+#dim(samplesheet)
+samplesheet$base <- limma::strsplit2(samplesheet$ID, "_")[,1]
+samplesheet$base2 <- paste0(samplesheet$base,"_", samplesheet$Sample_Plate)
+
+#450K
+load("Preprocessing/2023-03-28_450K/dchsTech_betas_450K_2023-03-28.Rdata")
+colnames(beta450K) <- samplesheet$ID[match(colnames(beta450K), samplesheet$Sample_Name)]
+
+#EpicV1
+load("Preprocessing/2023-03-28_epicV1/dchsTech_betas_epic1_2023-03-28.Rdata")
+colnames(betaV1) <- samplesheet$ID[match(colnames(betaV1), samplesheet$Sample_Name)]
+
+#EpicV2
+load("Preprocessing/2023-03-28_epicV2/dchsTech_betas_epic2_2023-03-28.Rdata")
+colnames(betaV2) <- samplesheet$ID[match(colnames(betaV2), samplesheet$Sample_Name)]
+betaV2 <- betaV2[!(rowSums(is.na(betaV2[,])))==32,] #some weird ones that need to be removed- control probes?
+
+```
+
+```{r repicc, include=F, eval=F}
+repicc<-function(dat,repid,mvalue=FALSE){
+  if(mvalue){dat=B2M(dat)}
+  if(!identical(repid$id,colnames(dat))){
+      rownames(repid)=repid$id
+      id=intersect(repid$id,colnames(dat))
+      repid=repid[id,]
+      dat=dat[,id]
+      #remove singletons
+      x.char=as.character(repid$idx)
+      flag=x.char %in% names(table(x.char)[table(x.char)<2])
+      repid=repid[!flag,]
+      dat=dat[,!flag]
+}
+
+icc<-function(probe,meth,x.char){
+  y=meth[probe,]
+#remove missing data and singletons
+  flag=is.na(y);
+  if(sum(flag)>0){
+    y=y[!flag];
+    x.char=x.char[!flag]
+    flag=x.char %in% names(table(x.char)[table(x.char)<2]);y=y[!flag];x.char=x.char[!flag]
+    }
+  temp<-aggregate(y~x.char,FUN=mean)
+  ga<-temp[,2]
+  gs<-table(x.char)
+  sst<-sum((ga-mean(y))^2*gs[temp$"x.char"])
+  sse<-(sum((y-mean(y))^2)-sst)
+  n<-length(y); 
+  t<-length(ga)
+  mse<-sse/(n-t)
+  mst<-sst/(t-1)
+  c<-(n^2-sum(gs^2))/(n*(t-1))
+  sigma.a.sq<-(mst-mse)/c
+  c(probe,ifelse(sigma.a.sq<=0,0,sigma.a.sq/(sigma.a.sq+mse)))
+}
+
+resu1= lapply(dimnames(dat)[[1]], icc, meth=dat, x.char=as.character(repid$idx))
+resu <- do.call(rbind, lapply(resu1, unlist))
+resu=as.data.frame(resu)
+names(resu)=c("probe","icc")
+resu$icc=as.numeric(as.vector(resu$icc))
+resu
+}
+```
+
+```{r 450k icc, include=F, eval=F}
+reps450K <- c("136_rep_450K","136_450K","141_rep_450K","141_450K")
+
+for(i in seq(10000, nrow(beta450K), 10000)){
+  if(i == 10000){x = 1; ICC450K <- data.frame()}
+  else{x = (i-10000)+1}
+  if(i == 480000){i = nrow(beta450K)}
+  print(paste(x, i, sep =": "))
+  temp <- repicc(beta450K[x:i,reps450K],
+                    repid = data.frame(id = reps450K,
+                                       idx = limma::strsplit2(reps450K, "_")[,1]))
+  ICC450K <- rbind(ICC450K, temp)
+}
+
+
+```
+
+```{r epicv1 icc,include=F,  eval=F}
+repsV1 <- c("136_rep_V1","136_V1","141_rep_V1","141_V1")
+
+for(i in seq(10000, nrow(betaV1), 10000)){
+  if(i == 10000){x = 1; ICCv1 <- data.frame()}
+  else{x = (i-10000)+1}
+  if(i == 860000){i = nrow(betaV1)}
+  print(paste(x, i, sep =": "))
+  temp <- repicc(betaV1[x:i,repsV1],
+                    repid = data.frame(id = repsV1,
+                                       idx = limma::strsplit2(repsV1, "_")[,1]))
+  ICCv1 <- rbind(ICCv1, temp)
+}
+
+```
+
+```{r epicv2 icc,include=F, eval=F}
+repsV2 <- c("136_rep1_V2","136_V2","141_rep1_V2","141_V2")
+
+dim(betaV2)
+
+for(i in seq(10000, nrow(betaV2), 10000)){
+  if(i == 10000){x = 1; ICCv2 <- data.frame()}
+  else{x = (i-10000)+1}
+  if(i == 920000){i = nrow(betaV2)}
+  print(paste(x, i, sep =": "))
+  temp <- repicc(betaV2[x:i,repsV2],
+                 repid = data.frame(id = repsV2,
+                                    idx = limma::strsplit2(repsV2, "_")[,1]))
+  ICCv2 <- rbind(ICCv2, temp)
+}
+dim(ICCv2)
+
+
+save(ICC450K, ICCv1, ICCv2, file="iccByArray_2023-04-04.Rdata")
+```
+
+### Compare and contrast intraclass correlation coefficients
+Intraclass correlation coefficients (ICC) for each CpG were calculated using replicates for each array. In other words, the two replicates on the EpicV1 were used to calculate the ICC for the probes on that array; the same two replicates were used for the 450K and EpicV2. Subsets of CpGs were compared based on their presence on the different arrays.  
+Reliability is a result of both person-to-person variation and technical variation in measurement. Such reliability is often assessed by calculating intra-class correlation coefficients (ICC), a statistic that uses pairs of duplicate samples to quantify ‘biologic variability’ relative to the ‘total variability’ (biologic plus technical variation). Generally, an ICC>0.5 is considered good. See [Xu & Taylor, Epigenetics, 2021](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8078668/).  
+```{r icc, message=F, echo=F, fig.width=5, fig.height=5}
+load("iccByArray_2023-04-04.Rdata")
+
+ICClong <- rbind(data.frame(ICC450K, array = "450K"),
+                 data.frame(ICCv1, array = "EpicV1"),
+                 data.frame(ICCv2, array = "EpicV2"))
+ggplot(ICClong, aes(x= array, y= icc, fill = array))+
+  geom_boxplot(alpha=0.7)+
+  theme_classic()+
+  scale_fill_viridis("Array",discrete=T)+
+  xlab("")+
+  ylab("Intraclass correlation coefficient (ICC) of CpGs")
+
+# ggplot(ICClong, aes(x= array, y= icc, fill = array))+
+#   geom_violin(alpha=0.7)+
+#   theme_classic()+
+#   scale_fill_viridis("Array",discrete=T)+
+#   #ggdist::stat_halfeye(adjust = 1, width = .5, justification = -.3, .width = 0, point_colour = NA)+
+#   xlab("")+
+#   ylab("Intraclass correlation coefficient (ICC) of CpGs")
+
+#table(ICClong$icc>0.5, ICClong$array) #EpicV2 has more probes that have low ICC 
+
+#contrasting to probes on different arrays
+feat450 <- meffil.get.features("450k")
+featEpic1 <- meffil.get.features("epic")
+featEpic2 <- meffil.get.features("epic2")
+
+only450 <- feat450[!feat450$name %in% featEpic1$name,]
+only450 <- only450[!only450$name %in% featEpic2$name,]
+#dim(only450) #8820
+
+onlyV1 <- featEpic1[!featEpic1$name %in% feat450$name,]
+onlyV1 <- onlyV1[!onlyV1$name %in% featEpic2$name,]
+#dim(onlyV1) #61451
+
+onlyV2 <- featEpic2[!featEpic2$name %in% feat450$name,]
+onlyV2 <- onlyV2[!onlyV2$name %in% featEpic1$name,]
+#dim(onlyV2) #185853
+
+co450_V1 <- feat450[feat450$name %in% featEpic1$name,]
+co450_V1 <- co450_V1[!co450_V1$name %in% featEpic2$name,]
+#dim(co450_V1) #82667
+
+co450_V2 <- feat450[feat450$name %in% featEpic2$name,]
+co450_V2 <- co450_V2[!co450_V2$name %in% featEpic1$name,]
+#dim(co450_V2) #24597
+
+coV1_V2 <- featEpic1[featEpic1$name %in% featEpic2$name,]
+coV1_V2 <- coV1_V2[!coV1_V2$name %in% feat450$name,]
+#dim(coV1_V2) #352094
+
+all <- feat450[feat450$name %in% featEpic1$name,]
+all <- all[all$name %in% featEpic2$name,]
+#dim(all) #370341
+
+#adding the information to the long format
+ICClong$subset <- "All"
+ICClong$subset[ICClong$probe %in% only450$name] <- "Only 450K"
+ICClong$subset[ICClong$probe %in% onlyV1$name] <- "Only EpicV1"
+ICClong$subset[ICClong$probe %in% onlyV2$name] <- "Only EpicV2"
+ICClong$subset[ICClong$probe %in% co450_V1$name] <- "450K & EpicV1"
+ICClong$subset[ICClong$probe %in% co450_V2$name] <- "450K & EpicV2"
+ICClong$subset[ICClong$probe %in% coV1_V2$name] <- "EpicV1 & EpicV2"
+
+rm(all, only450, onlyV1, onlyV2, co450_V1, co450_V2, coV1_V2,
+   feat450, featEpic1, featEpic2)
+ICClong$subset <- factor(ICClong$subset, 
+                         levels = c("All","Only 450K", "Only EpicV1","Only EpicV2",
+                                    "450K & EpicV1", "450K & EpicV2","EpicV1 & EpicV2"))
+#table(ICClong$subset)
+```
+
+
+```{r icc2, echo=F, message=F, fig.width=10, fig.height=8}
+a<- ggplot(ICClong, aes(x = subset, y = icc, fill = array))+
+  geom_boxplot(alpha =0.7, 
+               position = position_dodge2(preserve = "single"))+
+  theme_classic()+
+  ylab("Intraclass correlation coefficient (ICC) of CpGs")+
+  xlab("Presence of CpGs on different arrays")+
+  scale_fill_viridis("Array   ", discrete=T)
+
+
+ICClong2 <- ICClong
+ICClong2$icc <- ifelse(ICClong2$icc>0.5,"Good","Bad")
+
+ICCsummary <- ICClong2 %>%
+  dplyr::group_by(array, subset) %>% 
+  dplyr::summarise(Good = count(icc == "Good"), Bad = count(icc =="Bad"))
+#ICCsummary
+ICCsummary$Good <- ICCsummary$Good / (ICCsummary$Good+ICCsummary$Bad)
+ICCsummary$Bad <- 1- ICCsummary$Good
+ICCsummary <- melt(data.frame(ICCsummary))
+
+b<-ggplot(ICCsummary, aes(x = subset, y = value, fill = array, alpha = variable))+
+  geom_bar(stat='identity', position = position_dodge2(preserve="single"), col ="black")+
+  theme_classic()+
+  scale_alpha_manual("ICC >0.5", values = c(1, 0.3), labels = c("Good","Bad"))+
+  ylab("Fraction of CpGs")+
+  xlab("Presence of CpGs on different arrays")+
+  scale_fill_viridis("Array   ", discrete=T)
+
+grid.arrange(a, b, nrow=2)
+
+```
+Overall, it seems that probes from EpicV1 have higher ICC that those from other arrays. EpicV2 probes perform at comparable levels to the 450K array.  
+
+### Checking probes with IQR >0.01
+Interquartile ranges (IQR) for each CpG were calculated using the 30 samples available on each array (replicates removed). Subsets of CpGs were again compared based on their presence on the different arrays. Generally, an IQR>0.01 is representative of measurable variability for a given CpG.  
+_Note from Matt: most studies that have done this have ignored the fact that probes with small or non-existent variances will tend to just vary due to noise. Correlations for these probes will be generally uninformative to it would be reasonable to only consider probes above some small variance threshold (e.g. IQR > 0.01 or something). This analysis might be useful for getting at which of the probes on 450K and EPIC2 only are actually good quality._  
+```{r iqr,  message=F, echo=F, fig.width=5, fig.height=5}
+beta450KnoRep <- beta450K[,-grep("_rep", colnames(beta450K))]
+#dim(beta450KnoRep)
+betaV1noRep <- betaV1[,-grep("_rep", colnames(betaV1))]
+#dim(betaV1noRep)
+betaV2noRep <- betaV2[,-grep("_rep", colnames(betaV2))]
+#dim(betaV2noRep)
+
+
+iqr450 <- rowIQRs(beta450KnoRep)
+iqrV1 <- rowIQRs(betaV1noRep)
+iqrV2 <- rowIQRs(betaV2noRep)
+ICClong$iqr <- c(iqr450, iqrV1, iqrV2)
+ICClong$icc2 <- ifelse(ICClong$icc>0.5,"Good","Bad")
+ICClong$iqr2 <- ifelse(ICClong$iqr>0.01,"Good","Bad")
+rm(iqr450, iqrV1, iqrV2)
+#head(ICClong)
+
+ggplot(ICClong, aes(x=array, y = log10(iqr), fill = array))+
+  geom_boxplot(alpha=0.7, position = position_dodge2(preserve="single"), outlier.size=-1)+
+  theme_classic()+
+  geom_hline(yintercept=log10(0.01),col="red",linetype=2)+
+  scale_fill_viridis("Array",discrete=T)+
+  ylab("log10(IQR)")+
+  xlab("Array")
+
+# ggplot(ICClong, aes(fill = iqr2, x = array))+
+#   geom_bar(stat='count', position= position_fill(), alpha=0.7,col="black", width=0.5)+
+#   theme_classic()+
+#   facet_wrap(~subset, scales= "free_x", nrow=2)+
+#   scale_fill_viridis("IQR", discrete=T, labels = c("IQR<0.01","IQR>0.01"))+
+#   ylab("Fraction of CpGs")+
+#   xlab("Array")
+```
+_CpGs below red dashed line have IQR<0.01_
+
+```{r iqr2, echo=F, message=F, fig.width=10}
+iqrsumm <- ICClong %>% 
+  group_by(array, subset) %>%
+  dplyr::summarise(Good = count(iqr2 =="Good"), Bad= count(iqr2=="Bad"))
+iqrsumm$Total <- iqrsumm$Good+iqrsumm$Bad
+#print(data.frame(iqrsumm))
+cat("Number of EpicV2 probes with good IQR compared to EpicV1:\n",
+    sum(iqrsumm$Good[grep("EpicV2", iqrsumm$array)[2:3]]) - 
+      sum(iqrsumm$Good[grep("EpicV1", iqrsumm$array)[2:3]]))
+iqrsumm$Good <- 100*(iqrsumm$Good /(iqrsumm$Good+iqrsumm$Bad))
+iqrsumm$Bad <- 100 - iqrsumm$Good 
+
+ggplot(melt(data.frame(iqrsumm[,-5])), aes(x = array, y = value, fill = variable))+
+  geom_bar(stat='identity', position = position_dodge2(preserve="single"),col="black",alpha=0.7)+
+  theme_bw()+
+  facet_wrap(~subset, nrow=2)+
+  scale_fill_viridis(labels = c("IQR>0.01","IQR<0.01"), discrete=T,"")+
+  ylab("Fraction of CpGs")+
+  xlab("Array")+
+  ylim(0,100)
+```
+Overall, it seem that probes from the EpicV2 have larger IQR, even when they were measured on prior arrays. There is a net gain of 68,287 CpGs with IQR >0.01 on the EpicV2 compared to the EpicV1.  
+
+### ICC with IQR filter
+DNAm variability can greatly impact the ICC of CpGs, as very low or very high DNAm levels are more impacted by slight changes. Here, we examine _only_ the ICC of probes with an IQR>0.01 to determine which probes are actually of good quality.  
+```{r icc+iqr, message=F, echo=F, fig.width=5, fig.height=5}
+#checking ICC with IQR filter
+ggplot(ICClong, aes(x= array, y= icc, fill = iqr2))+
+  geom_boxplot(alpha=0.7)+
+  theme_classic()+
+  scale_fill_viridis("IQR>0.01",discrete=T)+
+  xlab("")+
+  ylab("Intraclass correlation coefficient (ICC) of CpGs")
+
+# ggplot(ICClong, aes(x= iqr2, y= icc, fill = array))+
+#   geom_boxplot(alpha=0.7, position = position_dodge2(preserve="single"))+
+#   theme_classic()+
+#   facet_wrap(~subset,nrow=2)+
+#   scale_fill_viridis("Array",discrete=T)+
+#   xlab("IQR>0.01")+
+#   ylab("Intraclass correlation coefficient (ICC) of CpGs")
+```
+
+```{r iqr+icc 2, echo=F, message=F, fig.width=10, fig.height=8}
+ICCsummary2 <- ICClong[ICClong$iqr2=="Good",] %>%
+  dplyr::group_by(array, subset) %>% 
+  dplyr::summarise(Good = count(icc2 == "Good"), Bad = count(icc2 =="Bad"))
+cat("CpGs with IQR>0.01 and ICC>0.5 are noted as good\n")
+#ICCsummary2
+
+cat("Number of EpicV2 probes with good IQR and ICC compared to EpicV1:\n",
+    sum(ICCsummary2$Good[grep("EpicV2", ICCsummary2$array)[2:3]]) - 
+      sum(ICCsummary2$Good[grep("EpicV1", ICCsummary2$array)[2:3]]))
+
+ICCsummary2$Good <- ICCsummary2$Good / (ICCsummary2$Good+ICCsummary2$Bad)
+ICCsummary2$Bad <- 1- ICCsummary2$Good
+ICCsummary2 <- melt(data.frame(ICCsummary2))
+
+a<- ggplot(ICClong[ICClong$iqr>0.01,], aes(x = subset, y = icc, fill = array))+
+  geom_boxplot(alpha =0.7, 
+               position = position_dodge2(preserve = "single"))+
+  theme_classic()+
+  ylab("Intraclass correlation coefficient (ICC) of CpGs")+
+  xlab("Presence of CpGs on different arrays")+
+  scale_fill_viridis("Array   ", discrete=T)
+
+
+b<- ggplot(ICCsummary2, aes(x = subset, y = value, fill = array, alpha = variable))+
+  geom_bar(stat='identity', position = position_dodge2(preserve="single"), col ="black")+
+  theme_classic()+
+  scale_alpha_manual("ICC >0.5", values = c(1, 0.3), labels = c("Good","Bad"))+
+  ylab("Fraction of CpGs")+
+  xlab("Presence of CpGs on different arrays")+
+  scale_fill_viridis("Array   ", discrete=T)
+
+grid.arrange(a, b, nrow=2)
+# ggplot(ICClong, aes(x= icc, y = iqr, col = array))+
+#   geom_smooth(method = "lm")+
+#   facet_wrap(~subset)+
+#   theme_classic()
+
+```
+Again, a greater proportion of CpGs are of good quality on the EpicV1 compared to EpicV2. However, due to the number of probes, there is a net gain of 22,899 informative probes on the EpicV2.  
+
+### Summary 
+In general, the probes on the EpicV1 seem to be of higher quality than those on EpicV2. However, there is a net improvement on the number of good probes that can be measured, though fewer than would be expected from the addition of ~135,000 probes.  
+
+```{r correlations, message=F, echo=F, fig.width=10}
+
+### Correlations across arrays for subsets of loci
+
+```
+
+
+
+## 3. Individual-level correlations and metrics
+Here, we investigated the stability of DNA methylation for a given individual across all three arrays. This step uses data that were pre-processed for all arrays **together**, resulting in an overlapping set of 369,639 CpGs and 100 samples (6x 450K replicates, 2x EpicV1 replicates, 2x EpicV2 replicates).All data shown here were preprocessed and normalized using the _meffil_ pipeline.
+```{r setup correlations, echo=F, message=F}
+load("Preprocessing/2023-03-21/dchsTech_betas_corrected_2023-03-21.Rdata")
+#dim(beta) #100 samples, 369,639 CpGs
+
+#colnames(beta)
+samplesheet <- data.table::fread("Preprocessing/2023-03-21/DCHS_technical_samplesheet_corrected_2023-03-21.csv")
+#dim(samplesheet)
+samplesheet$base <- limma::strsplit2(samplesheet$ID, "_")[,1]
+samplesheet$base2 <- paste0(samplesheet$base,"_", samplesheet$Sample_Plate)
+#identical(colnames(beta), as.character(samplesheet$Sample_Name))
+colnames(beta) <- samplesheet$ID
+
+colnames(beta) <- samplesheet$Sample_Name
+
+#standardizing betas
+# betas_standard <- apply(beta, 1, function(x){
+#   (x - mean(x))/sd(x)
+# })
+# dim(betas_standard)
+# betas_standard <- t(betas_standard)
+# identical(colnames(betas_standard), colnames(beta))
+# identical(rownames(betas_standard), rownames(beta))
+
+```
+
+### Checking replicate correlations
+We first checked the reliability of replicates across arrays (6x 450K replicates, 2x EpicV1 replicates, 2x EpicV2 replicates).
+```{r replicates, echo=F, message=F, fig.height=10, fig.width=10}
+#head(samplesheet)
+reps <- samplesheet[grep("_rep", samplesheet$ID),]
+#dim(reps) #10 replicates
+repsFull <- samplesheet[samplesheet$base2 %in% reps$base2,]
+#dim(repsFull) #20 
+repsFull <- repsFull[order(repsFull$base),1:8]
+#repsFull
+repsDNAm <- beta[,match(repsFull$Sample_Name, colnames(beta))]
+
+colnames(repsDNAm) <- repsFull$ID
+#boxplot(repsDNAm[,], )
+#cor(repsDNAm[,1:2])
+
+melted_cormat <- melt(cor(repsDNAm, method = "spearman"))
+melted_cormat$X1 <- factor(melted_cormat$X1, levels = repsFull$ID)
+melted_cormat$X2 <- factor(melted_cormat$X2, levels = repsFull$ID)
+melted_cormat$base1 <- strsplit2(melted_cormat$X1,"_")[,1]
+melted_cormat$base2 <- strsplit2(melted_cormat$X2,"_")[,1]
+
+#melted_cormat$value[melted_cormat$base1 != melted_cormat$base2] <- NA
+#min(melted_cormat$value, na.rm=T)
+
+ggplot(data = melted_cormat[,], 
+       aes(X2, X1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       #midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0.982, limit = c(0.964,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_classic()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+  coord_fixed()+
+  xlab("")+
+  ylab("")+
+  geom_text(data = melted_cormat[melted_cormat$base1 == melted_cormat$base2,],
+            aes(label= gsub(1,"", round(value,4))), size =2.5)
+
+#136_rep1_V2 is very slightly lower
+#rest all look fine
+
+toremove <- repsFull$Sample_Name[c(grep("_rep_450K", repsFull$ID), 
+                                   grep("_rep_V1", repsFull$ID), 
+                                   grep("_rep1_V2", repsFull$ID))]
+#length(toremove)
+
+#removing replicates from dataset
+samplesheetNoRep <- samplesheet[!samplesheet$Sample_Name %in% toremove,]
+betaNoRep <- beta[,!colnames(beta) %in% toremove]
+#dim(betaNoRep)
+# save(betaNoRep, samplesheetNoRep, 
+#      file="dchsTech_betas_noRep_2023-03-28.Rdata")
+rm(samplesheet, toremove, reps, repsDNAm, repsFull, beta, melted_cormat)
+```
+Replicates within an array were very highly correlated (spearman rho≥0.9899), and showed high correlations with their biological replicates on other arrays (spearman rho ≥0.9798). When comparing different sets of replicates (e.g., sample 136 to 141), correlations were higher with data generated from the same array.  
+
+
+### Correlation within samples across arrays
+Next, we investigated the correlation of DNAm measured from different arrays within each participant.  
+```{r sample correlation, echo=F, message=F, fig.height=6, fig.width=10}
+load("dchsTech_betas_noRep_2023-03-28.Rdata")
+#dim(betaNoRep)
+#dim(samplesheetNoRep)
+#head(samplesheetNoRep)
+samplesheetNoRep <- samplesheetNoRep[order(samplesheetNoRep$ID),]
+betaNoRep <- betaNoRep[,match(samplesheetNoRep$Sample_Name, colnames(betaNoRep))]
+#identical(as.character(samplesheetNoRep$Sample_Name), colnames(betaNoRep))
+colnames(betaNoRep) <- samplesheetNoRep$ID
+corrs <- cor(betaNoRep, method="spearman")
+
+for(i in seq(1,88, 3)){
+  if(i==1){corrsCor <- data.frame();corrsCor2 <- data.frame()}
+  x = i+2
+  temp <- corrs[i:x,i:x]
+  temp <- melt(temp)
+  temp <- temp[!temp$X1 == temp$X2,]
+  corrsCor <- rbind(corrsCor, temp)
+  corrsCor2 <- rbind(corrsCor2, temp[1:3,])
+  rm(i, x, temp)
+}
+#min(corrsCor$value)
+ggplot(data = corrsCor, aes(X1, X2, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0.985, limit = c(0.97,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_classic()+ 
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, 
+                               size = 8, hjust = 1),
+    axis.text.y = element_text(size= 8))+
+  coord_fixed()+
+  xlab("")+
+  ylab("")
+  #geom_text(aes(label= gsub(1,"", round(value,4))), size =2.5)
+
+
+#corrsCor2[corrsCor2$value<0.99,]
+corrsCor2$Sample <- limma::strsplit2(corrsCor2$X1, "_")[,1]
+corrsCor2$X1.2 <- limma::strsplit2(corrsCor2$X1, "_")[,2]
+corrsCor2$X2.2 <- limma::strsplit2(corrsCor2$X2, "_")[,2]
+corrsCor2$comparison <- ifelse(corrsCor2$X2.2 =="450K" & corrsCor2$X1.2 =="V1", "450K - EpicV1",
+                               ifelse(corrsCor2$X2.2 =="450K" & corrsCor2$X1.2 =="V2", "450K - EpicV2",
+                                     "EpicV1 - EpicV2"))
+#head(corrsCor2)
+
+a<- ggplot(corrsCor2, aes(x = gsub(" - ", "\n", comparison), y = value, fill = comparison))+
+  #geom_violin(alpha = 0.77)+
+  geom_boxplot(width =.5, outlier.size = 0, alpha =0.7)+
+  geom_jitter(width = 0.05, alpha = 0.5)+
+  #geom_dotplot(binwidth = 0.0003, binaxis = "y")+
+  theme_classic()+
+  ylim(0.97, 1)+
+  ylab("Spearman correlation")+
+  xlab("")+
+  scale_fill_viridis(discrete=T, "Contrast")+
+  theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12),
+        legend.position="none")
+
+
+b <- ggplot(corrsCor2, aes(x = gsub(" - ", "\n", comparison), y = value, col = Sample))+
+  geom_line(aes(group = Sample), alpha =0.7)+
+  geom_point()+
+  theme_classic()+
+  ylim(0.97, 1)+
+  ylab("Spearman correlation")+
+  xlab("")+
+  scale_color_viridis(discrete=T)+
+  theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12), 
+        legend.position = "none")
+
+#gridExtra::grid.arrange(a,b, ncol=2)
+
+c <- ggplot(corrsCor2, aes(x = value, fill = comparison))+
+  geom_density(alpha=0.5)+
+  theme_classic()+
+  xlim(0.97, 1)+
+  xlab("Spearman correlation")+
+  ylab("Density")+
+    theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12))+
+  scale_fill_viridis(discrete=T, "Comparison")
+
+gridExtra::grid.arrange(a,b,c, nrow=1)
+
+corrsCor2 %>% 
+  dplyr::group_by(comparison) %>% 
+  dplyr::summarise(mean = mean(value), median = median(value), sd = sd(value),
+            min = min(value), max = max(value),
+            "0th" = quantile(value, probs =0),
+            "25th" = quantile(value, probs =.25),
+            "50th" = quantile(value, probs =.50),
+            "75th" = quantile(value, probs =.75),
+            "100th" = quantile(value, probs =1))
+
+rm(corrs, corrsCor, corrsCor2, a, b, c)
+
+```
+DNAm generated from the EpicV2 were marginally more highly correlated with 450K data than the EpicV1 (spearman rho = 0.981-0.985).  
+
+
+### Samples means, medians, and standard deviation
+We checked bulk differences in DNAm levels across the different arrays.  
+```{r means medians sd oh my, echo=F, message=F, fig.width=6, fig.height=6}
+
+ss <- data.frame(sample = colnames(betaNoRep),
+                 Mean = apply(betaNoRep, 2, mean),
+                 Median = apply(betaNoRep, 2, median),
+                 SD = apply(betaNoRep, 2, sd)
+                 )
+
+ss$id <- limma::strsplit2(ss$sample, "_")[,1]
+ss$array <- limma::strsplit2(gsub("_rep1", "", ss$sample), "_")[,2]
+
+ssMelt <- reshape::melt(ss)
+  
+ggplot(ssMelt, aes(x = array, y = value, fill = array))+
+  geom_boxplot(alpha=0.7)+
+  facet_wrap(~variable, scales= "free")+
+  theme_classic()+
+  ggtitle("Sample means, medians, and SD")+
+  scale_fill_viridis(discrete=T, "Array")
+
+
+# ggplot(ssMelt, aes(x = id, y = value, col = array))+
+#   geom_point(size =2)+
+#   facet_wrap(~variable, scales= "free")+
+#   theme_classic()
+
+
+rm(ssMelt, ss)
+```
+  
+The EpicV2 had higher mean and median DNAm levels than the other two arrays, but less variability than the 450K array.  
+
+### Comparing cell type estimates between arrays
+As cell types proportions are estimated from the DNAm data, they represent an initial check of the stability and concordance of the data. Theoretically, these estimates should be nearly identical, as they come from the same DNA pool.  
+```{r cell type correlation, echo=F, message=F, fig.height=6, fig.width=10}
+load("Preprocessing/2023-03-21/meffil_qc_objects_commonAll_2023-03-21.Rdata")
+celltypes <- meffil::meffil.cell.count.estimates(qc.objects)
+celltypes<- celltypes[, match(samplesheetNoRep$Sample_Name, colnames(celltypes))]
+#identical(as.character(samplesheetNoRep$Sample_Name), colnames(celltypes))
+colnames(celltypes) <- samplesheetNoRep$ID
+corrs <- cor(celltypes)
+
+for(i in seq(1,88, 3)){
+  if(i==1){corrsCor <- data.frame();corrsCor2 <- data.frame()}
+  x = i+2
+  temp <- corrs[i:x,i:x]
+  temp <- melt(temp)
+  #temp <- temp[!temp$X1 == temp$X2,]
+  corrsCor <- rbind(corrsCor, temp)
+  corrsCor2 <- rbind(corrsCor2, temp[c(2,3,6),])
+  rm(i, x, temp)
+}
+
+corrsCor2$Sample <- limma::strsplit2(corrsCor2$X1, "_")[,1]
+corrsCor2$X1.2 <- limma::strsplit2(corrsCor2$X1, "_")[,2]
+corrsCor2$X2.2 <- limma::strsplit2(corrsCor2$X2, "_")[,2]
+corrsCor2$comparison <- ifelse(corrsCor2$X2.2 =="450K" & corrsCor2$X1.2 =="V1", "450K - EpicV1",
+                               ifelse(corrsCor2$X2.2 =="450K" & corrsCor2$X1.2 =="V2", "450K - EpicV2",
+                                     "EpicV1 - EpicV2"))
+
+a<- ggplot(corrsCor2, aes(x = gsub(" - ", "\n", comparison), y = value, fill = comparison))+
+  #geom_violin(alpha = 0.77)+
+  geom_boxplot(width =.5, outlier.size = 0, alpha =0.7)+
+  geom_jitter(width = 0.05, alpha = 0.5)+
+  #geom_dotplot(binwidth = 0.0003, binaxis = "y")+
+  theme_classic()+
+  #ylim(0.975, 0.99)+
+  ylab("Pearson correlation")+
+  xlab("")+
+  scale_fill_viridis(discrete=T, "Contrast")+
+  theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12),
+        legend.position="none")
+
+
+b <- ggplot(corrsCor2, aes(x = gsub(" - ", "\n", comparison), y = value, col = Sample))+
+  geom_line(aes(group = Sample), alpha =0.7)+
+  geom_point()+
+  theme_classic()+
+  #ylim(0.975, 0.99)+
+  ylab("Pearson correlation")+
+  xlab("")+
+  scale_color_viridis(discrete=T)+
+  theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12), 
+        legend.position = "none")
+
+#gridExtra::grid.arrange(a,b, ncol=2)
+
+c <- ggplot(corrsCor2, aes(x = value, fill = comparison))+
+  geom_density(alpha=0.5)+
+  theme_classic()+
+  #xlim(0.975, 0.99)+
+  xlab("Pearson correlation")+
+  ylab("Density")+
+    theme(axis.text = element_text(size =10, color ="black"),
+        axis.title = element_text(size =12))+
+  scale_fill_viridis(discrete=T, "Comparison")
+
+gridExtra::grid.arrange(a,b,c, nrow=1)
+
+corrsCor2 %>% 
+  dplyr::group_by(comparison) %>% 
+  dplyr::summarise(mean = mean(value), median = median(value), sd = sd(value),
+            min = min(value), max = max(value),
+            "0th" = quantile(value, probs =0),
+            "25th" = quantile(value, probs =.25),
+            "50th" = quantile(value, probs =.50),
+            "75th" = quantile(value, probs =.75),
+            "100th" = quantile(value, probs =1))
+
+rm(corrs, corrsCor, corrsCor2, a, b, c, qc.objects)
+
+```
+Similar to the epigenome-wide DNAm correlations, the EpicV2 had higher correlations with the 450K array than the EpicV1 (pearson rho = 0.985-1.00).   
+
+### Summary
+When examining only the probes that are common to all arrays, the EpicV2 seems to be slightly closer to the 450K array than the EpicV1. However, the differences between arrays are marginal for these probes. The EpicV1 and EpicV2 also tend to be as closely related as the 450K and EpicV1.  
+
+## 4. Stability of associations with sex
+Finally, we investigated the stability of associations with sex across arrays, using the data that were normalized and processed together without replicates (369,639 CpGs for 30 samples on 3 arrays). As these are the same samples and CpGs, the associations should theoretically remain fairly stable across analyses. All analyses were corrected for cell types, but included no other covariates. 
+
+```{r phenotype merging, echo=F,message=F}
+#Adding phenotypes to samplesheet
+txt <- read.table("../Technical_report_memo/Sample selection/DCHS_technicalReport_samples_2023-01-26.txt",
+                  header=T)
+
+samplesheetNoRep$Sex2 <- txt$sex[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$PID_child <- txt$pid_child[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Site <- txt$site[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$SES <- txt$ses_education2v_ANC[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Ethnicity <- txt$ethnicity[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Smoking <- txt$Prenatal_smoking_composite[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Momage <- txt$maternal_age_birth[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Birthweight <- txt$birth_weight[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Parity <- txt$parity[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Gestage <- txt$gestation_delivery[match(samplesheetNoRep$base, txt$UBC.ID)]
+samplesheetNoRep$Sample_Plate <- limma::strsplit2(samplesheetNoRep$Sample_Group,"_")[,2]
+samplesheetNoRep <- cbind(samplesheetNoRep, t(celltypes))
+
+# write.table(samplesheetNoRep, file="samplesheetNoRep_phenos_2023-03-29.txt", sep ="\t",
+#             quote=F, col.names=T, row.names = F)
+rm(txt, celltypes)
+#save(betaNoRep, samplesheetNoRep, file = "dchsTech_betas_noRep_2023-11-07.Rdata")
+
+# temp <- melt(samplesheetNoRep[,c(4,5,26:31)])
+# ggplot(temp,aes(fill = Sample_Plate, x= variable, y = value))+
+#   geom_boxplot(alpha =0.77)+
+#   theme_classic()+
+#   scale_fill_viridis(discrete=T, "Array")+
+#   ylab("Cell type proportion")+
+#   xlab("Cell type")+
+#   theme(axis.text = element_text(size =10, color="black"),
+#         axis.title = element_text(size =12))
+
+# rm(temp)
+```
+
+First, we investigated a sex*array interaction model, which maximizes the power of 90 samples. Here, we assess the CpGs that met an FDR<0.05 threshold in the sex-only model and interactions with EpicV1 or EpicV2. We would expect there to be fewer associations with the interaction models, as those would indicate differences between arrays.  
+```{r sex*array, echo=F, message=F, fig.width=5, fig.height=5}
+#head(samplesheetNoRep)
+#betaNoRep[1:5,1:5]
+#load("dchsTech_betas_noRep_2023-11-07.Rdata")
+samplesheetNoRep$Sex <- as.factor(samplesheetNoRep$Sex)
+samplesheetNoRep$Sample_Plate <- as.factor(samplesheetNoRep$Sample_Plate)
+
+mod <- model.matrix(~1+Sex+Sex*Sample_Plate + Bcell + CD4T + CD8T + Gran + Mono + NK+ Ethnicity + Birthweight +
+                      Gestage+ Smoking + Momage + SES + Parity + Site,
+                    data= samplesheetNoRep)
+rownames(mod) <- samplesheetNoRep$ID
+identical(colnames(betaNoRep), rownames(mod))
+
+fit <- lmFit(betaNoRep, mod)
+fit <- eBayes(fit)
+#colnames(fit$coefficients)
+topSex <- topTable(fit, coef = "SexM", adjust.method = "none",
+                   n="Inf", p.value = 1e-8)
+topSexV1 <- topTable(fit, coef = "SexM:Sample_PlateV1", adjust.method = "none",
+                     n="Inf", p.value = 1e-8)
+topSexV2 <- topTable(fit, coef = "SexM:Sample_PlateV2", adjust.method = "none",
+                     n="Inf", p.value = 1e-8)
+
+# dim(topSex) #9836
+# dim(topSexV1) #1055
+# dim(topSexV2) #767 - fewer hits = less differences? 
+#cat("Analyses of interaction between sex and array \n")
+ggvenn(list(SexOnly = rownames(topSex),
+                 SexEpicV1 = rownames(topSexV1),
+                 SexEpicV2 = rownames(topSexV2)))
+
+```
+  
+Interaction model of sex*array type resulted in fewer associations with the EpicV2 array. Most associations came from the model of sex only, with no interaction, which is expected from the design of this analysis.  
+  
+Second, we investigated each array independently and assessed the overlapping associations across analyses (369, 639 CpGs; 30 samples/array).
+```{r sex by array, echo=F, message=F, fig.width=10, fig.height=8}
+
+#array specific analysis
+fit450 <- lmFit(betaNoRep[,grep("_450K", colnames(betaNoRep))], 
+                mod[grep("_450K", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fit450 <- eBayes(fit450)
+top450 <- topTable(fit450, coef = "SexM", adjust.method ="BH", n="Inf")
+
+fitV1 <- lmFit(betaNoRep[,grep("_V1", colnames(betaNoRep))], 
+                mod[grep("_V1", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fitV1 <- eBayes(fitV1)
+topV1 <- topTable(fitV1, coef = "SexM", adjust.method ="BH", n="Inf")
+
+
+fitV2 <- lmFit(betaNoRep[,grep("_V2", colnames(betaNoRep))], 
+                mod[grep("_V2", rownames(mod)),c(1,2,5:(ncol(mod)-2))])
+fitV2 <- eBayes(fitV2)
+topV2 <- topTable(fitV2, coef = "SexM", adjust.method ="BH", n="Inf")
+dim(topV2)
+#cat("Each array analyzed separately (FDR<0.05):\n")
+a <- ggvenn(list("450K" = rownames(top450[top450$adj.P.Val<0.05,]),
+            EPICv1 = rownames(topV1[topV1$adj.P.Val<0.05,]),
+            EPICv2 = rownames(topV2[topV2$adj.P.Val<0.05,])))+
+  ggtitle("FDR<0.05")
+
+#cat("Each array analyzed separately (FDR<0.001):\n")
+b <- ggvenn(list("450K" = rownames(top450[top450$adj.P.Val<0.001,]),
+            EPICv1 = rownames(topV1[topV1$adj.P.Val<0.001,]),
+            EPICv2 = rownames(topV2[topV2$adj.P.Val<0.001,])))+
+  ggtitle("FDR<0.001")
+
+#cat("Each array analyzed separately (FDR<0.00001):\n")
+c<- ggvenn(list("450K" = rownames(top450[top450$adj.P.Val<0.00001,]),
+            EPICv1 = rownames(topV1[topV1$adj.P.Val<0.00001,]),
+            EPICv2 = rownames(topV2[topV2$adj.P.Val<0.00001,])))+
+  ggtitle("FDR<0.00001")
+
+grid.arrange(a,b,c, nrow=1)
+
+topCpGs <- c(rownames(top450)[top450$P.Value<1e-8],
+             rownames(topV1)[topV1$P.Value<1e-8],
+             rownames(topV2)[topV2$P.Value<1e-8])
+top <- rbind(data.frame(top450[rownames(top450)%in% topCpGs,],
+                        array = "450K"),
+             data.frame(topV1[rownames(topV1)%in% topCpGs,],
+                        array = "EpicV1"),
+             data.frame(topV2[rownames(topV2)%in% topCpGs,],
+                        array = "EpicV2"))
+dim(top)
+```
+Associations with sex across arrays – most were shared, but EPICv1 and 450K have more overlaps (even with a more stringent FDR).  
+  
+As p-values are less stable metrics, we also checked the concordance in t-statistics across arrays for CpGs that passed a p<1x10^-8 threshold with any array.
+```{r sex concordance, echo=F, message=F, fig.width=12, fig.heigh = 6}
+# ggplot(top, aes(x = -log10(P.Value), fill = array))+
+#   geom_density(alpha =0.5)+
+#   theme_classic()+
+#   geom_vline(xintercept = -log10(1e-8), col ="red")+
+#   scale_fill_viridis(discrete=T)
+
+ggvenn(list("450K" = rownames(top450[top450$P.Value<1e-8,]),
+            EPICv1 = rownames(topV1[topV1$P.Value<1e-8,]),
+            EPICv2 = rownames(topV2[topV2$P.Value<1e-8,])))+
+  ggtitle("CpGs with p<1x10^-8")
+
+top <- top[order(top$array, rownames(top)),]
+top$delta <- (2^top$logFC * top$AveExpr) - top$AveExpr
+topBetas <- data.frame(CpG = unique(rownames(top)), 
+                       K450 = top$delta[top$array == "450K"],
+                       EpicV1 = top$delta[top$array == "EpicV1"],
+                       EpicV2 = top$delta[top$array == "EpicV2"],
+                       K450_pval = top$P.Value[top$array == "450K"],
+                       EpicV1_pval = top$P.Value[top$array == "EpicV1"],
+                       EpicV2_pval = top$P.Value[top$array == "EpicV2"])
+topBetas$color <- ifelse(rowSums(topBetas[,5:7] < 1e-8)==3, "All",
+                         ifelse(rowSums(topBetas[,c(5,6)] < 1e-8)==2,"450K & EpicV1",
+                                ifelse(rowSums(topBetas[,c(5,7)] < 1e-8)==2,"450K & EpicV2",
+                                       ifelse(rowSums(topBetas[,c(6,7)] <
+                                                        1e-8)==2,"EpicV1 & EpicV2",
+                                              ifelse(topBetas$K450_pval < 1e-8,"Only 450K",
+                                                     ifelse(topBetas$EpicV1_pval < 1e-8,
+                                                            "Only EpicV1",
+                                                            ifelse(topBetas$EpicV2_pval < 
+                                                                     1e-8,"Only EpicV2", NA
+                                                            )))))))
+topBetas$color <- factor(topBetas$color,
+                         levels = c("All","Only 450K", "Only EpicV1","Only EpicV2",
+                                    "450K & EpicV1", "450K & EpicV2","EpicV1 & EpicV2"))
+
+#-c(grep("All", topBetas$color), grep("EpicV2", topBetas$color))
+corrs <- c(cor(topBetas$K450[-grep("EpicV2", topBetas$color)], 
+                        topBetas$EpicV1[-grep("EpicV2", topBetas$color)] ),
+           cor(topBetas$K450[-grep("EpicV1", topBetas$color)], 
+                        topBetas$EpicV2[-grep("EpicV1", topBetas$color)] ),
+           cor(topBetas$EpicV2[-grep("450K", topBetas$color)], 
+                        topBetas$EpicV1[-grep("450K", topBetas$color)] ))
+
+corrDF <- data.frame(K450 = .3,
+                     EpicV1 = .4,
+                     EpicV2 = .4, 
+                     data = corrs, color= "All")
+
+head(topBetas)
+sum(!rowSums(topBetas[2:4]<0) %in% c(0,3)) #6
+topBetas[which(!rowSums(topBetas[2:4]<0) %in% c(0,3)),] #6
+badCpGs <- topBetas$CpG[which(!rowSums(topBetas[2:4]<0) %in% c(0,3))] #6
+summaryLong[summaryLong$CpG %in% badCpGs,]
+
+dim(topBetas)
+
+a<- ggplot(topBetas[-grep("EpicV2", topBetas$color),], 
+       aes(x= K450, y= EpicV1, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EpicV1 ∆beta")+
+  xlab("450K ∆beta")+
+  scale_color_viridis("Analysis", discrete=T, drop=F)+
+  theme(legend.text = element_text(size=10),
+        legend.title = element_text(size=12))+
+  geom_text(data = corrDF[1,], aes(label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+a
+b<- ggplot(topBetas[-grep("EpicV1", topBetas$color),], 
+       aes(x= K450, y= EpicV2, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EpicV2 ∆beta")+
+  xlab("450K ∆beta")+
+  scale_color_viridis("Analysis", discrete=T, drop=F)+
+  geom_text(data = corrDF[2,], aes(label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+
+c<- ggplot(topBetas[-grep("450K", topBetas$color),], 
+       aes(x= EpicV1, y= EpicV2, col = color))+
+  geom_point(alpha = 0.8)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_smooth(method="lm", col = "grey")+
+  geom_abline()+
+  theme_classic()+
+  ylab("EpicV2 ∆beta")+
+  xlab("EpicV1 ∆beta")+
+  scale_color_viridis("Analysis", discrete=T, drop=F)+
+  geom_text(data = corrDF[3,], aes(x= 0.3, label = paste0("rho = ", round(data,3))),
+            color ="black", size =4)
+
+grid.arrange(a+theme(legend.position="none"), 
+             b+theme(legend.position="none"), 
+             c+theme(legend.position="none"), 
+             ggpubr::get_legend(a), 
+             nrow=1, top=textGrob("CpGs with p<1x10^-8 on any array"))
+
+
+topBetasMelt <- melt(topBetas[,-c(5:7)])
+ggplot(topBetasMelt, aes(x= abs(value), fill = color))+
+  geom_density(alpha=0.4)+
+  #facet_wrap(~color)+
+  theme_classic()+
+  geom_vline(xintercept = 0)
+
+ggplot(topBetasMelt, aes(y= value, color= variable,group=variable, x = color))+
+  geom_jitter(alpha=0.4, position=position_dodge(width=0.5))+
+  #facet_wrap(~color)+
+  theme_classic()+
+  geom_hline(yintercept = 0)
+
+ggplot(topBetasMelt, aes(y= abs(value), group=color, x = color))+
+  #geom_jitter(alpha=0.4, position=position_dodge(width=0.5))+
+  geom_violin(alpha=0.7,aes(fill= color))+
+  geom_boxplot(width=0.2, fill="grey", outlier.size = -1)+
+  #facet_wrap(~color)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, "Significant on:")+
+  ylab("Absolute ∆beta of sex difference")+
+  xlab("Significant difference on which arrays (p<1x10-8)")+
+  theme(axis.text= element_text(size =11, color="black"),
+        axis.title = element_text(size =12, color="black", face="bold"),
+        legend.text = element_text(size =10, color="black"),
+        legend.title = element_text(size =11, color="black", face="bold"),
+        panel.grid.minor = element_line(),
+        panel.grid.major.y = element_line())+
+  scale_x_discrete(labels = gsub("Only ", "Only\n", gsub("& ", "&\n", levels(topBetasMelt$color))))
+
+topBetasMelt %>% group_by(color, variable) %>% dplyr::summarize(mean = mean(abs(value)))
+head(topBetasMelt)
+
+```
+All CpGs showed the same direction of change and the majority showed similar magnitude of change as well. The grey line shows the linear regression and the black line shows perfect concordance. EpicV2 t-statistics had marginally higher correlations than EpicV1, but fewer overlapping associations. 
+
+### Summary
+In terms of associations with sex, the strongest associations seem to be fairly consistent and stable across arrays. The EpicV2 showed slighly lower concordance with the 450K array than the EpicV1. 
+
+## 5. Conclusions
+Overall, it seems the EpicV2 provides a marginal improvement over the EpicV1 in terms of the number of good probes and comparability to the 450K array. However, the probes on the EpicV2 may be less reliable when measured in blood, which could lead to higher measurement error. 
+
+**Pros**  
+  
++ Greater number of good, measurable probes than the EpicV1  
++ Higher correlations with the 450K array than the EpicV1  
++ Many new CpGs are in enhancers and open seas, which might be more responsive to environment. Large proportion in TSS1500, which might be less responsive, but more interpretable. [Noguera-Castells et al., Epigenetics, 2023](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9988339/)
++ Newer technology that will be supported for longer than the EpicV1  
+
+**Cons**  
+  
++ Lose some of the CpGs previously associated with childhood adversity  
++ Many CpGs from the 450K are lost on the EpicV2  
++ Generally lower intraclass correlation coefficients (ICC) of CpGs compared to the EpicV1 means that measurements might be less reliable  
++ Some issues with SNP probes (see report here: *Drakenstein/Epic 1 vs 2/SNP_differences/DCHS_SNP_report_2023-03-24.html*)  
+

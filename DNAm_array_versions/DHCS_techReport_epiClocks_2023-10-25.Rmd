@@ -1,0 +1,147 @@
+---
+title: "DCHS_techReport_epiClocks_2023-10-25"
+output: html_document
+date: '2023-10-25'
+---
+
+*Loading data*
+```{r setup and daata load}
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/")
+load("Epic 1 vs 2/Analysis/dchsTech_betas_noRep_2023-03-28.Rdata", verbose=T)
+
+head(samplesheetNoRep)
+
+layout <- data.frame(data.table::fread("Admin/DNAm_samples/DCHS_randomization/randomizedDCHS_custom_withReplicates_2023-08-29.txt"))
+
+techSamp <- data.frame(data.table::fread("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Analysis/samplesheetNoRep_phenos_2023-03-29.txt"))
+head(techSamp)
+techSamp2 <- data.frame(data.table::fread("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Epic 1 vs 2/Technical_report_memo/Sample selection/DCHS_technicalReport_samples_2023-01-26.txt"))
+samps <- layout[layout$pid_child %in% c(techSamp2$pid_child),]
+samps <- samps[samps$Age == "60 MONTHS", ]
+samps$SpecificAge <- (samps$Date - samps$childdob)
+dim(samps)
+
+head(techSamp)
+
+techSamp$SpecificAge <- samps$SpecificAge[match(techSamp$PID_child, samps$pid_child)]
+
+```
+
+*Clock CpGs*
+```{r}
+grimAge<- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/GrimAge/ElasticNet_DNAmProtein_Vars_model4.csv")
+hannum<- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/Hannum/datCoefHannum.csv")
+horvath1 <- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/Horvath1/probeAnnotation21kdatMethUsed.csv")
+horvath2 <- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/Horvath2/Horvath2_CpGs.csv")
+phenoage <- read.csv("/Users/alexlussier/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/PhenoAge/PhenoAge_CpGs.csv")
+
+clockCpGs <- c(as.character(grimAge$var),
+               as.character(hannum$Marker),
+               as.character(horvath1$Name),
+               as.character(horvath2$ID),
+               as.character(phenoage$CpG))
+clockCpGs <- clockCpGs[!clockCpGs %in% c("(Intercept)","Intercept","Age")]
+clockCpGs <- unique(clockCpGs)
+```
+
+
+*450k prep*
+```{r}
+load("Epic 1 vs 2/Data/dchsTech_betas_450K_2023-03-28.Rdata", verbose=T)
+beta450K <- data.frame(t(beta450K))
+dim(beta450K)
+beta450K[1:5,1:5]
+beta450K$SampleID <- rownames(beta450K)
+beta450K <- beta450K[,c("SampleID",clockCpGs[clockCpGs %in% colnames(beta450K)])]
+beta450K <- beta450K[beta450K$SampleID %in% techSamp$Sample_Name,]
+beta450K$SampleID <- techSamp$ID[match(beta450K$SampleID, techSamp$Sample_Name)]
+dim(beta450K)
+
+sheet_450k <- techSamp[techSamp$ID %in% beta450K$SampleID,]
+sheet_450k <- data.frame(SampleID = sheet_450k$ID, 
+                         Age = sheet_450k$SpecificAge,
+                         Female = ifelse(sheet_450k$Sex==F, 1, 0), 
+                         Sample_Name = sheet_450k$Sample_Name,
+                         PID_child =sheet_450k$PID_child)
+dim(sheet_450k)
+write.csv(sheet_450k, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/sheet450_2023-10-25.csv", quote=F, row.names = F)
+save(beta450K, file = c("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/clockBetas_450K_2023-10-25.Rdata"))
+
+```
+
+*Epic V1 prep*
+```{r}
+load("Epic 1 vs 2/Data/dchsTech_betas_epic1_2023-03-28.Rdata", verbose=T)
+
+betaV1 <- data.frame(t(betaV1))
+dim(betaV1)
+betaV1[1:5,1:5]
+betaV1$SampleID <- rownames(betaV1)
+betaV1 <- betaV1[,c("SampleID", clockCpGs[clockCpGs %in% colnames(betaV1)])]
+betaV1 <- betaV1[betaV1$SampleID %in% techSamp$Sample_Name,]
+betaV1$SampleID <- techSamp$ID[match(betaV1$SampleID, techSamp$Sample_Name)]
+dim(betaV1)
+
+sheet_V1 <- techSamp[techSamp$ID %in% betaV1$SampleID,]
+sheet_V1 <- data.frame(SampleID = sheet_V1$ID, 
+                         Age = sheet_V1$SpecificAge,
+                         Female = ifelse(sheet_V1$Sex==F, 1, 0), 
+                         Sample_Name = sheet_V1$Sample_Name,
+                         PID_child =sheet_V1$PID_child)
+dim(sheet_V1)
+write.csv(sheet_V1, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/sheetV1_2023-10-25.csv", quote=F, row.names = F)
+save(betaV1, file = c("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/clockBetas_V1_2023-10-25.Rdata"))
+
+```
+
+*Epic V2 prep*
+```{r}
+load("Epic 1 vs 2/Data/dchsTech_betas_epic2_2023-03-28.Rdata", verbose=T)
+
+betaV2 <- data.frame(t(betaV2))
+dim(betaV2)
+betaV2[1:5,1:5]
+betaV2$SampleID <- rownames(betaV2)
+betaV2 <- betaV2[,c("SampleID",clockCpGs[clockCpGs %in% colnames(betaV2)])]
+betaV2 <- betaV2[betaV2$SampleID %in% techSamp$Sample_Name,]
+betaV2$SampleID <- techSamp$ID[match(betaV2$SampleID, techSamp$Sample_Name)]
+dim(betaV2)
+
+sheet_V2 <- techSamp[techSamp$ID %in% betaV2$SampleID,]
+sheet_V2 <- data.frame(SampleID = sheet_V2$ID, 
+                         Age = sheet_V2$SpecificAge,
+                         Female = ifelse(sheet_V2$Sex==F, 1, 0), 
+                         Sample_Name = sheet_V2$Sample_Name,
+                         PID_child =sheet_V2$PID_child)
+dim(sheet_V2)
+write.csv(sheet_V2, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/sheetV2_2023-10-25.csv", quote=F, row.names = F)
+save(betaV2, file = c("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/clockBetas_V2_2023-10-25.Rdata"))
+
+
+```
+
+*fullData*
+```{r}
+betaNoRep  <- data.frame(t(betaNoRep))
+dim(betaNoRep)
+betaNoRep[1:5,1:5]
+betaNoRep$SampleID <- rownames(betaNoRep)
+betaNoRep <- betaNoRep[,c("SampleID",clockCpGs[clockCpGs %in% colnames(betaNoRep)])]
+betaNoRep <- betaNoRep[betaNoRep$SampleID %in% techSamp$Sample_Name,]
+betaNoRep$SampleID <- techSamp$ID[match(betaNoRep$SampleID, techSamp$Sample_Name)]
+dim(betaNoRep)
+
+sheet_all <- techSamp[techSamp$ID %in% betaNoRep$SampleID,]
+sheet_all <- data.frame(SampleID = sheet_all$ID, 
+                         Age = sheet_all$SpecificAge,
+                         Female = ifelse(sheet_all$Sex==F, 1, 0), 
+                         Sample_Name = sheet_all$Sample_Name,
+                         PID_child =sheet_all$PID_child)
+dim(sheet_all)
+fullData <- betaNoRep
+
+write.csv(sheet_all, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/sheetAll_2023-10-25.csv", quote=F, row.names = F)
+save(fullData, file = c("~/Dropbox (Partners HealthCare)/Dunn_shared/Drakenstein/Paper - DNAm technical report/Scripts/Multiclock/clockBetas_all_2023-10-25.Rdata"))
+
+```
+

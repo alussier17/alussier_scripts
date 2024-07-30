@@ -1,0 +1,290 @@
+---
+title: "DCHS_report_processing"
+output: html_document
+date: "2023-03-21"
+author: "Alexandre Lussier"
+editor_options: 
+  chunk_output_type: console
+---
+
+*Adapted from meffil pipeline for 450K and EPICv1 together*
+https://github.com/perishky/meffil/blob/master/tests/450k-and-epic.rmd
+#use R4.1
+
+```{r setup}
+library(meffil) 
+
+#if giving sva error
+#BiocManager::install("edgeR", force = T)
+#then remove the other edgeR package
+
+options(mc.cores=1)
+setwd("/data/js95/DunnLab/alussier/DCHS_technical/")
+
+```
+
+
+```{r samplesheets}
+#450K
+sample450 <- read.csv("Erin Dunn Test_450K_samplesheet.csv", skip =7)
+temp <- meffil.create.samplesheet(path = "idats/450K")
+colnames(sample450)[1] <- "ID"
+sample450$Sample_Name <- paste(sample450$Sentrix_ID, 
+                                     sample450$Sentrix_Position, sep="_")
+samplesheet450k <- merge(sample450, temp, by ="Sample_Name")
+head(samplesheet450k)
+rm(temp, sample450)
+
+
+#EPICv1
+sampleV1 <- read.csv("ErinDunn_V1_Samplesheet.csv", skip =7)
+temp <- meffil.create.samplesheet(path = "idats/EPIC V1")
+colnames(sampleV1)[1] <- "ID"
+sampleV1$Sample_Name <- paste(sampleV1$Sentrix_ID, 
+                                     sampleV1$Sentrix_Position, sep="_")
+samplesheetV1 <- merge(sampleV1, temp, by ="Sample_Name")
+head(samplesheetV1)
+rm(sampleV1, temp)
+
+#EPICv2
+sampleV2 <- read.csv("ErinDunn_V2_Samplesheet_corrected.csv", skip =7)
+temp <- meffil.create.samplesheet(path = "idats/EPIC V2")
+colnames(sampleV2)[1] <- "ID"
+sampleV2$Sample_Name <- paste(sampleV2$Sentrix_ID, 
+                                     sampleV2$Sentrix_Position, sep="_")
+samplesheetV2 <- merge(sampleV2, temp, by ="Sample_Name")
+head(samplesheetV2)
+rm(sampleV2, temp)
+
+
+samplesheet <- rbind(samplesheet450k, samplesheetV1, samplesheetV2)
+rm(samplesheet450k, samplesheetV1, samplesheetV2)
+
+txt <- read.table("~/DCHS_technicalReport_samples_2023-01-26.txt", header=T)
+
+samplesheet$Sex <- txt$sex[match(limma::strsplit2(samplesheet$ID,"_")[,1],
+                                 txt$UBC.ID)]
+samplesheet$Sex <- ifelse(samplesheet$Sex ==1, "F","M")
+
+write.csv(samplesheet, file ="DCHS_technical_samplesheet_corrected_2023-03-21.csv", 
+          row.names=F, quote=F)
+
+rm(txt)
+```
+
+*Featureset*
+```{r}
+#creating common feature set
+fs450 <- meffil.get.features("450k")
+fscommon <- meffil.get.features("common")
+fsEpic2 <- meffil.get.features("epic2")
+
+commonAll <- fscommon[fscommon$name %in% fsEpic2$name,]
+dim(commonAll)
+meffil.add.featureset(name = "commonAll", commonAll)
+save(commonAll, file ="meffil_commonAll_featureset.Rdata")
+rm(fsEpic2,fscommon, commonAll )
+
+
+```
+
+
+*QC*
+```{r}
+#running QC first step
+qc.objects <- meffil.qc(samplesheet, 
+                        cell.type.reference = "blood gse35069",
+                        verbose=T, featureset = "commonAll")
+
+save("meffil_qc_objects_commonAll_2023-03-21.Rdata")
+str(qc.objects)
+qc.summary <- meffil.qc.summary(qc.objects, verbose=T)
+qc.summary$sex.check
+qc.summary$bad.samples
+qc.summary$bad.cpgs
+
+
+meffil.qc.report(qc.summary, output.file = "QC_report_2023-03-21.html")
+
+```
+
+*Normalization*
+```{r}
+#normalization
+norm.objects <- meffil.normalize.quantiles(qc.objects, number.pcs=5, verbose=T)
+save(norm.objects, file="meffil_norm_objects_2023-03-21.Rdata")
+
+norm.dataset <- meffil.normalize.samples(norm.objects,
+                                        just.beta=F, 
+                                        cpglist.remove=qc.summary$bad.cpgs$name,
+                                        verbose=T)
+save(norm.dataset, file="meffil_norm_dataset_2023-03-21.Rdata")
+
+
+
+#norm report
+beta <- meffil.get.beta(norm.dataset$M, norm.dataset$U)
+save(beta, file="dchsTech_betas_corrected_2023-03-21.Rdata")
+
+
+pcs <- meffil.methylation.pcs(beta, sites=meffil.get.autosomal.sites("commonAll"), verbose=T)
+
+parameters <- meffil.normalization.parameters(norm.objects)
+parameters$batch.threshold <- 0.01
+
+norm.summary <- meffil.normalization.summary(norm.objects=norm.objects,
+                                             pcs=pcs,
+                                             parameters=parameters, verbose=T)
+meffil.normalization.report(norm.summary,
+                            output.file="norm_report_commonAll_2023-03-21.html")
+
+
+
+
+```
+
+
+```{r}
+
+devtools::package_info(pkgs = "meffil")
+# package          * version   date (UTC) lib source
+#  annotate           1.72.0    2021-10-26 [2] Bioconductor
+#  AnnotationDbi      1.56.2    2021-11-09 [2] Bioconductor
+#  askpass            1.1       2019-01-13 [1] CRAN (R 4.1.2)
+#  base64             2.0.1     2022-08-19 [1] CRAN (R 4.1.2)
+#  BH                 1.81.0-1  2023-01-22 [1] CRAN (R 4.1.2)
+#  Biobase            2.54.0    2021-10-26 [1] Bioconductor
+#  BiocGenerics       0.40.0    2021-10-26 [1] Bioconductor
+#  BiocParallel     * 1.28.3    2021-12-09 [1] Bioconductor
+#  Biostrings         2.62.0    2021-10-26 [1] Bioconductor
+#  bit                4.0.5     2022-11-15 [1] CRAN (R 4.1.2)
+#  bit64              4.0.5     2020-08-30 [1] CRAN (R 4.1.2)
+#  bitops             1.0-7     2021-04-24 [1] CRAN (R 4.1.2)
+#  blob               1.2.4     2023-03-17 [1] CRAN (R 4.1.2)
+#  boot               1.3-28    2021-05-03 [2] CRAN (R 4.1.2)
+#  brio               1.1.3     2021-11-30 [1] CRAN (R 4.1.2)
+#  cachem             1.0.7     2023-02-24 [1] CRAN (R 4.1.2)
+#  Cairo            * 1.5-15    2022-03-16 [2] CRAN (R 4.1.2)
+#  callr              3.7.3     2022-11-02 [1] CRAN (R 4.1.2)
+#  cli                3.6.0     2023-01-09 [1] CRAN (R 4.1.2)
+#  clue               0.3-60    2021-10-11 [2] CRAN (R 4.1.2)
+#  cluster            2.1.3     2022-03-28 [2] CRAN (R 4.1.2)
+#  codetools          0.2-18    2020-11-04 [2] CRAN (R 4.1.2)
+#  colorspace         2.0-3     2022-02-21 [2] CRAN (R 4.1.2)
+#  cpp11              0.4.3     2022-10-12 [1] CRAN (R 4.1.2)
+#  crayon             1.5.2     2022-09-29 [1] CRAN (R 4.1.2)
+#  curl               5.0.0     2023-01-12 [1] CRAN (R 4.1.2)
+#  DBI                1.1.3     2022-06-18 [1] CRAN (R 4.1.2)
+#  desc               1.4.2     2022-09-08 [1] CRAN (R 4.1.2)
+#  diffobj            0.3.5     2021-10-05 [1] CRAN (R 4.1.2)
+#  digest             0.6.31    2022-12-11 [1] CRAN (R 4.1.2)
+#  DNAcopy          * 1.68.0    2021-10-26 [2] Bioconductor
+#  edgeR              3.36.0    2021-10-26 [2] Bioconductor
+#  ellipsis           0.3.2     2021-04-29 [1] CRAN (R 4.1.2)
+#  evaluate           0.20      2023-01-17 [1] CRAN (R 4.1.2)
+#  fansi              1.0.4     2023-01-22 [1] CRAN (R 4.1.2)
+#  farver             2.1.0     2021-02-28 [2] CRAN (R 4.1.2)
+#  fastICA          * 1.2-3     2021-09-25 [2] CRAN (R 4.1.2)
+#  fastmap            1.1.1     2023-02-24 [1] CRAN (R 4.1.2)
+#  formatR            1.14      2023-01-17 [1] CRAN (R 4.1.2)
+#  fs                 1.6.1     2023-02-06 [1] CRAN (R 4.1.2)
+#  futile.logger      1.4.3     2016-07-10 [1] CRAN (R 4.1.2)
+#  futile.options     1.0.1     2018-04-20 [1] CRAN (R 4.1.2)
+#  gdsfmt           * 1.30.0    2021-10-26 [2] Bioconductor
+#  genefilter       * 1.76.0    2021-10-26 [2] Bioconductor
+#  GenomeInfoDb       1.30.1    2022-01-30 [1] Bioconductor
+#  GenomeInfoDbData   1.2.7     2023-03-16 [1] Bioconductor
+#  ggplot2          * 3.3.5     2021-06-25 [2] CRAN (R 4.1.2)
+#  glue               1.6.2     2022-02-24 [1] CRAN (R 4.1.2)
+#  gridExtra        * 2.3       2017-09-09 [2] CRAN (R 4.1.2)
+#  gtable             0.3.0     2019-03-25 [2] CRAN (R 4.1.2)
+#  highr              0.10      2022-12-22 [1] CRAN (R 4.1.2)
+#  httr               1.4.2     2020-07-20 [2] CRAN (R 4.1.2)
+#  illuminaio       * 0.36.0    2021-10-26 [1] Bioconductor
+#  IRanges            2.28.0    2021-10-26 [1] Bioconductor
+#  isoband            0.2.5     2021-07-13 [2] CRAN (R 4.1.2)
+#  isva             * 1.9       2017-01-14 [2] CRAN (R 4.1.2)
+#  JADE             * 2.0-3     2020-03-25 [2] CRAN (R 4.1.2)
+#  jsonlite           1.8.0     2022-02-22 [2] CRAN (R 4.1.2)
+#  KEGGREST           1.34.0    2021-10-26 [2] Bioconductor
+#  knitr            * 1.42      2023-01-25 [1] CRAN (R 4.1.2)
+#  labeling           0.4.2     2020-10-20 [2] CRAN (R 4.1.2)
+#  lambda.r           1.2.4     2019-09-18 [1] CRAN (R 4.1.2)
+#  lattice            0.20-45   2021-09-22 [2] CRAN (R 4.1.2)
+#  lifecycle          1.0.3     2022-10-07 [1] CRAN (R 4.1.2)
+#  limma            * 3.50.3    2022-04-07 [1] Bioconductor
+#  lme4             * 1.1-32    2023-03-14 [1] CRAN (R 4.1.2)
+#  lmtest           * 0.9-40    2022-03-21 [1] CRAN (R 4.1.2)
+#  locfit             1.5-9.7   2023-01-02 [1] CRAN (R 4.1.2)
+#  magrittr           2.0.3     2022-03-30 [1] CRAN (R 4.1.2)
+#  markdown         * 1.1       2019-08-07 [2] CRAN (R 4.1.2)
+#  MASS             * 7.3-56    2022-03-23 [2] CRAN (R 4.1.2)
+#  Matrix           * 1.4-1     2022-03-23 [2] CRAN (R 4.1.2)
+#  matrixStats      * 0.63.0    2022-11-18 [1] CRAN (R 4.1.2)
+#  meffil           * 1.3.4     2023-02-24 [1] Github (perishky/meffil@a5016b2)
+#  memoise            2.0.1     2021-11-26 [1] CRAN (R 4.1.2)
+#  mgcv             * 1.8-40    2022-03-29 [2] CRAN (R 4.1.2)
+#  mime               0.12      2021-09-28 [1] CRAN (R 4.1.2)
+#  minqa              1.2.5     2022-10-19 [1] CRAN (R 4.1.2)
+#  multcomp         * 1.4-18    2022-01-04 [2] CRAN (R 4.1.2)
+#  munsell            0.5.0     2018-06-12 [2] CRAN (R 4.1.2)
+#  mvtnorm          * 1.1-3     2021-10-08 [2] CRAN (R 4.1.2)
+#  nlme             * 3.1-157   2022-03-25 [2] CRAN (R 4.1.2)
+#  nloptr             2.0.3     2022-05-26 [1] CRAN (R 4.1.2)
+#  openssl            2.0.6     2023-03-09 [1] CRAN (R 4.1.2)
+#  pillar             1.9.0     2023-03-22 [1] CRAN (R 4.1.2)
+#  pkgconfig          2.0.3     2019-09-22 [1] CRAN (R 4.1.2)
+#  pkgload            1.3.2     2022-11-16 [1] CRAN (R 4.1.2)
+#  plogr              0.2.0     2018-03-25 [1] CRAN (R 4.1.2)
+#  plyr             * 1.8.7     2022-03-24 [2] CRAN (R 4.1.2)
+#  png                0.1-8     2022-11-29 [1] CRAN (R 4.1.2)
+#  praise             1.0.0     2015-08-11 [1] CRAN (R 4.1.2)
+#  preprocessCore   * 1.56.0    2021-10-26 [2] Bioconductor
+#  processx           3.8.0     2022-10-26 [1] CRAN (R 4.1.2)
+#  ps                 1.7.3     2023-03-21 [1] CRAN (R 4.1.2)
+#  quadprog         * 1.5-8     2019-11-20 [2] CRAN (R 4.1.2)
+#  qvalue           * 2.26.0    2021-10-26 [2] Bioconductor
+#  R6                 2.5.1     2021-08-19 [1] CRAN (R 4.1.2)
+#  RColorBrewer       1.1-3     2022-04-03 [2] CRAN (R 4.1.2)
+#  Rcpp               1.0.10    2023-01-22 [1] CRAN (R 4.1.2)
+#  RcppEigen          0.3.3.9.3 2022-11-05 [1] CRAN (R 4.1.2)
+#  RCurl              1.98-1.10 2023-01-27 [1] CRAN (R 4.1.2)
+#  rematch2           2.1.2     2020-05-01 [1] CRAN (R 4.1.2)
+#  reshape2         * 1.4.4     2020-04-09 [2] CRAN (R 4.1.2)
+#  rlang              1.1.0     2023-03-14 [1] CRAN (R 4.1.2)
+#  rprojroot          2.0.3     2022-04-02 [1] CRAN (R 4.1.2)
+#  RSpectra         * 0.16-0    2019-12-01 [2] CRAN (R 4.1.2)
+#  RSQLite            2.3.0     2023-02-17 [1] CRAN (R 4.1.2)
+#  rstudioapi         0.14      2022-08-22 [1] CRAN (R 4.1.2)
+#  S4Vectors          0.32.4    2022-03-24 [1] Bioconductor
+#  sandwich         * 3.0-2     2022-06-15 [1] CRAN (R 4.1.2)
+#  scales             1.1.1     2020-05-11 [2] CRAN (R 4.1.2)
+#  SmartSVA         * 0.1.3     2017-05-28 [1] CRAN (R 4.1.2)
+#  snow               0.4-4     2021-10-27 [1] CRAN (R 4.1.2)
+#  statmod          * 1.4.36    2021-05-10 [2] CRAN (R 4.1.2)
+#  stringi            1.7.12    2023-01-11 [1] CRAN (R 4.1.2)
+#  stringr            1.5.0     2022-12-02 [1] CRAN (R 4.1.2)
+#  survival         * 3.3-1     2022-03-03 [2] CRAN (R 4.1.2)
+#  sva              * 3.42.0    2021-10-26 [2] Bioconductor
+#  sys                3.4.1     2022-10-18 [1] CRAN (R 4.1.2)
+#  testthat           3.1.3     2022-03-29 [2] CRAN (R 4.1.2)
+#  TH.data          * 1.1-0     2021-09-27 [2] CRAN (R 4.1.2)
+#  tibble             3.2.1     2023-03-20 [1] CRAN (R 4.1.2)
+#  utf8               1.2.3     2023-01-31 [1] CRAN (R 4.1.2)
+#  vctrs              0.6.1     2023-03-22 [1] CRAN (R 4.1.2)
+#  viridisLite        0.4.0     2021-04-13 [2] CRAN (R 4.1.2)
+#  waldo              0.4.0     2022-03-16 [1] CRAN (R 4.1.2)
+#  withr              2.5.0     2022-03-03 [1] CRAN (R 4.1.2)
+#  xfun               0.37      2023-01-31 [1] CRAN (R 4.1.2)
+#  XML                3.99-0.14 2023-03-19 [1] CRAN (R 4.1.2)
+#  xtable             1.8-4     2019-04-21 [1] CRAN (R 4.1.2)
+#  XVector            0.34.0    2021-10-26 [1] Bioconductor
+#  yaml               2.3.7     2023-01-23 [1] CRAN (R 4.1.2)
+#  zlibbioc           1.40.0    2021-10-26 [1] Bioconductor
+#  zoo              * 1.8-11    2022-09-17 [1] CRAN (R 4.1.2)
+# 
+#  [1] /PHShome/aq868/R/x86_64-pc-linux-gnu-library/4.1
+#  [2] /opt/R/4.1.2/lib/R/library
+
+```
+
