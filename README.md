@@ -1,10 +1,14 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
 # 1. Human epigenetics projects
-## [DNA methylation mediates the link between adversity and depressive symptoms](/Mediation_adversity-DNAm-depression)
+## [DNA methylation mediates the link between adversity and depressive symptoms - Nature Mental Health, 2024](/Mediation_adversity-DNAm-depression)
     A. Manuscripts
     B. Scripts
-    
+
+## [Technical variability across the 450K, EPICv1, and EPICv2 DNA methylation arrays: lessons learned for clinical and longitudinal studies - Clinical Epigenetics, 2024](/DNAm_array_versions)
+    A. Manuscripts
+    B. Scripts
+
 ## [Two-sample Mendelian Randomization of adversity-associated DNAm and health outcomes - American Journal of Epidemiology, 2024](/DNAm_MR_AJE)
     A. Manuscripts
     B. Scripts
@@ -12,7 +16,7 @@
 ## [Time-varying childhood adversity and DNA methylation at age 15 ALSPAC - Lancet Child & Adolescent Health, 2023](/adversity-DNAm)
     A. Manuscripts
     B. SLCMA scripts
-    C. Analaysis scripts
+    C. Analysis scripts
 
 ## [Childhood adversity and DNA methylation at age 7 and impact of data version differences(ALSPAC) - Epigenetics, 2022](/ALSPAC_data_differences)
     A. Manuscripts
