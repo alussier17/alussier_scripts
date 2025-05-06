@@ -1,0 +1,1174 @@
+---
+title: "Mediation replication results"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(reshape)
+library(viridis)
+
+
+```
+
+*summary function*
+```{r}
+makeSummary <- function(df){
+  df$unique <- paste0(df$Adversity, df$Analysis)
+  adversities <- unique(df$unique)
+  summary <- lapply(adversities, function(x){
+    temp <- df[df$unique == x,]
+    ACME <- temp[temp$Mediation == "ACME",]
+    ADE <- temp[temp$Mediation == "ADE",]
+    Total <- temp[temp$Mediation == "Total Effect",]
+    a <- data.frame(Adversity = temp$Adversity[1],
+                    Analysis = temp$Analysis[1],
+                    nCpGs = nrow(ACME),
+                    Indirect = sum(ACME$Estimate),
+                    Direct = Total$Estimate[1] - sum(ACME$Estimate),
+                    Total = Total$Estimate[1],
+                    Total.Pval = Total$p.value[1],
+                    Med.pos = sum(ACME$Estimate >0),
+                    Med.neg = sum(ACME$Estimate <0),
+                    sig0.05 = sum(ACME$p.value <=0.05),
+                    sig0.1 = sum(ACME$p.value <=0.1),
+                    sig0.25 = sum(ACME$p.value <=0.25))
+    a$Indirect.perc <- a$Indirect/a$Total * 100
+    a$Direct.perc <- a$Direct/a$Total * 100
+    a
+    
+  })
+  summary <- do.call(rbind, summary)
+  return(summary)
+  
+}
+
+```
+
+
+*ALSPAC results*
+```{r}
+#filter to actual adversities from original mediation paper
+load("Mediation_sites_2022-11-28.rdata", verbose = T)
+alspac <- med.data
+head(alspac)
+
+as.character(unique(alspac$Adversity))
+adversityMaster <- c(Fscore = "fh", mompsych = "dep", r_faminst = "faminst", parc = "par", oneadult = "oneadult")
+
+alspacSummary <- do.call(rbind, lapply(unique(alspac$Adversity), function(x){
+  temp <- alspac[alspac$Adversity == x,]
+  data.frame(Adversity = x, 
+             Analysis = "SP",
+             nCpGs = nrow(temp),
+             Indirect = temp$`Sum alpha*beta`[1],
+             Direct = temp$delta[1], 
+             Total = temp$`sum_delta + alpha*beta`[1],
+             Total.Pval =NA,
+             Med.pos = sum(temp$alphaxbeta >0),
+             Med.neg = sum(temp$alphaxbeta <0))
+}))
+alspacSummary
+alspac$alphaxbeta
+
+head(alspac)
+
+# alspacSP <- alspacMedSP
+# alspacSP$Analysis <- "SP"
+# alspacSPsum <- makeSummary(alspacSP)
+# alspacEver <- alspacMedEver
+# alspacEver$Analysis <- "Ever"
+# alspacEverSum <- makeSummary(alspacEver)
+
+#scaled data
+load("ALSPAC.mediation.replication.betas.scaled_2022-09-14.Rdata", verbose=T)
+
+alspacSPscaled <- alspacMedSP
+
+alspacMedSP[alspacMedSP$Adversity =="abuse_18m" & alspacMedSP$Mediation =="ACME",]
+
+alspacSPscaled$Analysis <- "Scaled_SP"
+alspacSPscaledSum <- makeSummary(alspacSPscaled)
+
+alspacEverScaled <- alspacMedEver
+alspacEverScaled$Analysis <- "Scaled_Ever"
+alspacEverScaledSum <- makeSummary(alspacEverScaled)
+
+#unscaled data
+load("ALSPAC.mediation.replication.betas_2022-09-14.Rdata", verbose=T)
+
+head(alspacMedEver)
+alspacMedSP$Analysis <- "SP"
+alspacSPsum <- makeSummary(alspacMedSP)
+alspacMedEver$Analysis <- "Ever"
+alspacEverSum <- makeSummary(alspacMedEver)
+alspacAllSummary <- rbind(alspacEverSum, alspacSPsum)
+alspacAllSummary$Adversity.2 <- rep(c("abuse","parc","Fscore","faminst","mompsych",
+                                      "nbhqual","oneadult"),2)
+
+ggplot(alspacAllSummary, 
+       aes(x= Adversity.2, y = Total, fill = Analysis))+
+  geom_bar(stat ="identity", position="dodge")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_text(aes(label=round(Total,3)), position =position_dodge(w=0.9))
+
+
+
+```
+
+*FFCWS loading*
+```{r}
+load("FFCWS_site_replication_2022-08-13.Rdata",
+     verbose=T)
+dim(allMediation)#2728, 7
+
+allMediationSP <- allMediation[-grep("ever", allMediation$Adversity), ]
+allMediationEver <- allMediation[grep("ever", allMediation$Adversity), ]
+
+
+for(i in adversityMaster){
+  if(i == adversityMaster[1]){allMediationFilt <- data.frame()}
+  print(i)
+  alspacName <- names(adversityMaster[adversityMaster == i])
+  alspacData <- alspac[alspac$Adversity == alspacName,]
+  ffcwsData <- allMediation[grep(i, allMediation$Adversity),]
+  ffcwsData <- ffcwsData[ffcwsData$CpG %in% as.character(alspacData$CpG),]
+  ffcwsData$Analysis <- gsub("\\.","", gsub(i, "", ffcwsData$Adversity))
+  ffcwsData$Adversity <- i
+  
+  allMediationFilt <- rbind(allMediationFilt, ffcwsData)
+  rm(alspacName, alspacData, ffcwsData)
+  
+}
+head(allMediationFilt)
+dim(allMediationFilt)
+allMediationFiltEver <- allMediationFilt[allMediationFilt$Analysis =="ever",]
+allMediationFiltSP <- allMediationFilt[allMediationFilt$Analysis !="ever",]
+table(allMediationFiltSP$Adversity, allMediationFiltSP$Analysis)
+temp <- allMediationFiltSP[allMediationFiltSP$Adversity == "oneadult",]
+duplicated(temp)
+allMediationFilt[allMediationFilt$p.value<0.2 & allMediationFilt$Mediation=="ACME",]
+
+
+summaryEver <- makeSummary(allMediationFiltEver)
+summaryEver
+summarySP <- makeSummary(allMediationFiltSP)
+sum(summarySP$nCpGs)-10
+
+head(alspac)
+
+head(allMediationFiltSP)
+
+#new figure
+allMediationFiltSP[allMediationFiltSP$Mediation=="Total Effect",]
+allMediationFiltSP[allMediationFiltSP$Adversity=="dep",]
+
+allMediationFiltSP.plot <- allMediationFiltSP[allMediationFiltSP$Mediation=="Prop. Mediated",]
+allMediationFiltSP.plot <- allMediationFiltSP.plot[order(abs(allMediationFiltSP.plot$Estimate), 
+                                                         decreasing =T),]
+allMediationFiltSP.plot<- allMediationFiltSP.plot[-which(allMediationFiltSP.plot$Adversity=="oneadult" & 
+                                                           allMediationFiltSP.plot$Analysis =="5"),]
+table(allMediationFiltSP.plot$Adversity)
+allMediationFiltSP.plot$Adversity <- factor(allMediationFiltSP.plot$Adversity, 
+                                            levels = c("par","dep","oneadult","faminst","fh"))
+
+ffcwsNet <- allMediationFiltSP.plot %>% group_by(Adversity) %>% 
+  summarize(medEffect = round(sum(Estimate*100)))
+ffcwsNet$medEffect2 <- ifelse(ffcwsNet$medEffect>0, paste0("+", ffcwsNet$medEffect,"%"), 
+                              paste0(ffcwsNet$medEffect,"%"))
+
+
+a <- ggplot(allMediationFiltSP.plot,
+  #allMediationFiltSP.plot[!allMediationFiltSP.plot$CpG%in% medDep$exposure,], 
+       aes(x = Adversity, y =Estimate*100, fill = Estimate<0))+
+  geom_bar(stat= 'identity', position="stack", col="black")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data = ffcwsNet, aes(y = 180, label = medEffect2, x = Adversity), inherit.aes = F)+
+  scale_x_discrete(labels = c("Caregiver physical\nor emotional abuse","Maternal\npsychopathology",
+                              "One-adult\nhousehold","Family\ninstability","Financial\nhardship"))+
+  theme(axis.text.x = element_text(angle =45, hjust=1))
+a  
+  
+```
+
+*FFCWS CpG effects*
+```{r}
+
+alspacMedSP.2 <- alspacSPscaled #### using the scaled data? 
+alspacMedSP.2$Adversity <- limma::strsplit2(alspacMedSP.2$Adversity, "_")[,1]
+alspacMedSP.2$Adversity[alspacMedSP.2$Adversity =="r"] <- "faminstability"
+alspacMedSP.2$Unique <- paste(alspacMedSP.2$CpG, alspacMedSP.2$Adversity, sep = "_")
+alspacMedSP.2 <- alspacMedSP.2[alspacMedSP.2$Mediation =="Prop. Mediated",]
+
+#
+allMediationFiltSP.2 <- allMediationFiltSP[!paste0(allMediationFiltSP$Adversity,
+                                                   allMediationFiltSP$Analysis)=="oneadult5",]
+adversityNames <- unique(allMediationFiltSP.2$Adversity)
+names(adversityNames) <- c("Fscore","mompsych", "faminstability","parcruelty","oneadult")
+allMediationFiltSP.2$Adversity <- names(adversityNames)[match(allMediationFiltSP.2$Adversity, adversityNames)]
+allMediationFiltSP.2$Unique <- paste(allMediationFiltSP.2$CpG, allMediationFiltSP.2$Adversity, sep ="_")
+allMediationFiltSP.2 <- allMediationFiltSP.2[allMediationFiltSP.2$Mediation =="Prop. Mediated",]
+
+allMediationFiltSP.2 <- allMediationFiltSP.2[match(alspacMedSP.2$Unique, allMediationFiltSP.2$Unique),]
+
+tableS5 <- data.frame(Adversity = alspacMedSP.2$Adversity, 
+                      CpG = alspacMedSP.2$CpG, 
+                      ALSPAC_effect = alspacMedSP.2$Estimate,
+                      ALSPAC_CIL <- alspacMedSP.2$CI.Lower,
+                      ALSPAC_CIU <- alspacMedSP.2$CI.Upper,
+                      ALSPAC_Pval <- alspacMedSP.2$p.value,
+                      FFCWS_effect = allMediationFiltSP.2$Estimate,
+                      FFCWS_CIL <- allMediationFiltSP.2$CI.Lower,
+                      FFCWS_CIU <- allMediationFiltSP.2$CI.Upper,
+                      FFCWS_Pval <- allMediationFiltSP.2$p.value
+                      )
+write.table(tableS5, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - mediation/Replication/Tables/TableS5_FFCWS_cpgs_2022-09-19.txt", sep = "\t", quote=F, 
+            row.names=F, col.names = T)
+
+cpgEffect <- data.frame(CpG = alspacMedSP.2$CpG, 
+                        Adversity = alspacMedSP.2$Adversity, 
+                        ALSPAC = alspacMedSP.2$Estimate*100, 
+                        FFCWS = allMediationFiltSP.2$Estimate*100)
+cpgEffect$Direction <- ifelse(cpgEffect$ALSPAC * cpgEffect$FFCWS >0, "Concordant","Discordant")
+table(cpgEffect$Direction)
+cpgEffect <- cpgEffect[!is.na(cpgEffect$FFCWS),]
+cpgEffect$Adversity <- factor(cpgEffect$Adversity, levels = c("parcruelty","mompsych","oneadult",
+                                                    "faminstability","Fscore"))
+
+a <- ggplot(cpgEffect, aes( x = ALSPAC, y = FFCWS, shape = Adversity, col = Direction))+
+  geom_point(size = 2.5)+
+  geom_hline(yintercept = 0)+
+  geom_abline(linetype = 3)+
+  geom_vline(xintercept = 0)+
+  theme_bw()+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("FFCWS - Percent mediated")+
+  #scale_color_viridis(discrete=T)+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "One adult household",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_color_viridis(labels = c("Concordant (21)", "Discordant (24)"),
+                      discrete=T, end =0.8)+
+  scale_y_continuous(breaks = seq(-25, 100, 25), limits = c(-40,85))+
+  geom_text(data = cpgEffect[cpgEffect$FFCWS<c(-10.1),],
+            aes(label = CpG), hjust =c(-0.1,-0.05,-0.1), vjust=c(0,1.1,-0.5), col = "black")+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12))
+
+cpgEffect[cpgEffect$FFCWS<c(-10.1),]
+#cg12343929 = WDR90
+#cg09191574 = DIO2
+
+interest <- cpgEffect$CpG[cpgEffect$FFCWS<c(-10.1)]
+  
+forestFFCWS <- rbind(data.frame(CpG = alspacMedSP.2$CpG, 
+                                Adversity = alspacMedSP.2$Adversity, 
+                                Estimate = alspacMedSP.2$Estimate*100, 
+                                CI.Lower = alspacMedSP.2$CI.Lower*100, 
+                                CI.Upper = alspacMedSP.2$CI.Upper*100,
+                                Dataset = "ALSPAC"),
+                     data.frame(CpG = allMediationFiltSP.2$CpG, 
+                                Adversity = allMediationFiltSP.2$Adversity,
+                                Estimate = allMediationFiltSP.2$Estimate*100, 
+                                CI.Lower = allMediationFiltSP.2$CI.Lower*100, 
+                                CI.Upper = allMediationFiltSP.2$CI.Upper*100,
+                                Dataset = "FFCWS"))
+forestFFCWS[grep("cg09191574", forestFFCWS$CpG),]
+forestFFCWS$Adversity <- factor(forestFFCWS$Adversity, levels = c("parcruelty","mompsych","oneadult",
+                                                    "faminstability","Fscore"))
+
+b<- ggplot(forestFFCWS[forestFFCWS$CpG %in% interest,], 
+       aes( y = CpG, group = Dataset, col = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+                                  "One adult household"),
+                       values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+
+leg <- cowplot::get_legend(a)
+leg.2 <- cowplot::get_legend(b)
+
+gridExtra::grid.arrange(a+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, face = "bold"))+
+                                ggtitle("A"),
+                        b+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, hjust =0.1, 
+                                                          face = "bold"))+
+                                ggtitle("B"), 
+                        nrow=1)
+
+gridExtra::grid.arrange(leg, leg.2, nrow=1)
+alspacMedSP[grep("cg09191574",alspacMedSP$CpG),]
+
+
+# cpgEffect$Difference <- cpgEffect$ALSPAC- cpgEffect$FFCWS
+# cpgEffect.2 <- rbind(data.frame(cpgEffect[,c(1:2,5)], 
+#                                 estimate = cpgEffect$ALSPAC,
+#                                 dataset = "ALSPAC"),
+#                      data.frame(cpgEffect[,c(1:2,5)], 
+#                                 estimate = cpgEffect$FFCWS,
+#                                 dataset = "FFCWS"))
+# cpgEffect.2$Unique <- paste(cpgEffect.2$CpG, cpgEffect.2$Adversity, sep ="_")
+# 
+# ggplot(cpgEffect.2, aes(x =dataset, y = estimate, col=Direction ))+
+#   geom_point(aes(shape = Adversity), size =2.5)+
+#   geom_line(aes(group = Unique))+
+#   theme_classic()+
+#   geom_hline(yintercept = 0)+
+#   ylab("Proportion mediated (%)")+
+#   xlab("Dataset")+
+#   scale_color_viridis(discrete=T, end =0.8, labels = c("Concordant (22)","Discordant (23)"))+
+#   theme(axis.text = element_text(size =12),
+#         axis.title= element_text(size =14),
+#         text = element_text(family = "Arial"))+
+#   facet_wrap(~Adversity, scale = "free_y")
+# 
+
+#EVER
+# alspacMedEver.2 <- alspacEverScaled #### using the scaled data? 
+# alspacMedEver.2$Adversity <- limma::strsplit2(alspacMedEver.2$Adversity, "_")[,1]
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="r"] <- "faminstability"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="abus"] <- "abuse"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="parc"] <- "parcruelty"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="Fscor"] <- "Fscore"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="nbhq"] <- "nbhqual"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="mompsy"] <- "mompsych"
+# alspacMedEver.2$Adversity[alspacMedEver.2$Adversity =="onead"] <- "oneadult"
+# alspacMedEver.2$Unique <- paste(alspacMedEver.2$CpG, alspacMedEver.2$Adversity, sep = "_")
+# alspacMedEver.2 <- alspacMedEver.2[alspacMedEver.2$Mediation =="Prop. Mediated",]
+# 
+# #
+# allMediationFiltEver.2 <- allMediationFiltEver
+# adversityNames <- unique(allMediationFiltEver.2$Adversity)
+# names(adversityNames) <- c("Fscore","mompsych", "faminstability","parcruelty","oneadult")
+# allMediationFiltEver.2$Adversity <- names(adversityNames)[match(allMediationFiltEver.2$Adversity, adversityNames)]
+# allMediationFiltEver.2$Unique <- paste(allMediationFiltEver.2$CpG, allMediationFiltEver.2$Adversity, sep ="_")
+# allMediationFiltEver.2 <- allMediationFiltEver.2[allMediationFiltEver.2$Mediation =="Prop. Mediated",]
+# 
+# allMediationFiltEver.2 <- allMediationFiltEver.2[match(alspacMedEver.2$Unique, allMediationFiltEver.2$Unique),]
+# 
+# cpgEffectEver <- data.frame(CpG = alspacMedEver.2$CpG, 
+#                         Adversity = alspacMedEver.2$Adversity, 
+#                         ALSPAC = alspacMedEver.2$Estimate*100, 
+#                         FFCWS = allMediationFiltEver.2$Estimate*100)
+# cpgEffectEver$Direction <- ifelse(cpgEffectEver$ALSPAC * cpgEffectEver$FFCWS >0,
+#                                   "Concordant","Discordant")
+# table(cpgEffectEver$Direction)
+# cpgEffectEver <- cpgEffectEver[!is.na(cpgEffectEver$FFCWS),]
+# cpgEffectEver$Adversity <- factor(cpgEffectEver$Adversity, 
+#                                   levels = c("parcruelty","mompsych","oneadult",
+#                                                     "faminstability","Fscore"))
+# 
+# ggplot(cpgEffectEver, aes( x = ALSPAC, y = FFCWS, shape = Adversity, col = Direction))+
+#   geom_point(size = 2.5)+
+#   geom_hline(yintercept = 0)+
+#   geom_abline(linetype = 3)+
+#   geom_vline(xintercept = 0)+
+#   theme_bw()+
+#   xlab("ALSPAC - Percent mediated")+
+#   ylab("FFCWS - Percent mediated")+
+#   #scale_color_viridis(discrete=T)+
+#   scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+#                                   "Maternal psychopathology",
+#                                   "One adult household",
+#                                   "Family instability",
+#                                   "Financial hardship"))+
+#   scale_color_viridis(labels = c("Concordant (22)", "Discordant (23)"),
+#                       discrete=T, end =0.8)+
+#   scale_y_continuous(breaks = seq(-25, 125, 25), limits = c(-30,110))+
+#   geom_text(data = cpgEffectEver[cpgEffectEver$FFCWS>100,],
+#             aes(label = CpG), hjust =c(-0.1), vjust=c(1), col = "black")
+# 
+#   
+# alspacSPscaled[grep("cg09191574", alspacSPscaled$CpG),]
+# alspacEverScaled[grep("cg09191574", alspacEverScaled$CpG),]
+```
+
+*FFCWS total effects*
+```{r}
+summaryData <- rbind(data.frame(summarySP[-6,], dataset ="FFCWS"),
+                     data.frame(alspacSPscaledSum, dataset= "ALSPAC"))
+summaryData$Adversity.2 <- limma::strsplit2(summaryData$Adversity, "_")[,1]
+summaryData$Adversity.2[summaryData$Adversity.2=="r"] <- "faminstability"
+summaryData$Adversity.2 <- gsub("par", "parcruelty", 
+                                gsub("faminstability","faminst", 
+                                     gsub("dep", "mompsych", 
+                                          gsub("fh","Fscore", summaryData$Adversity.2))))
+summaryData$Adversity.2 <- gsub("parcrueltycruelty", "parcruelty", summaryData$Adversity.2)
+summaryData$Adversity.2 <- gsub("faminst", "faminstability", summaryData$Adversity.2)
+
+summaryDataMelt <- melt(summaryData[,c("Adversity.2","nCpGs",
+                                       "Indirect.perc","Direct.perc","Total","dataset")])
+head(summaryDataMelt)
+summaryDataMelt$dataset <- factor(summaryDataMelt$dataset, levels = c("ALSPAC","FFCWS"))
+summaryDataMelt$variable <- factor(summaryDataMelt$variable,
+                                   levels = c("nCpGs","Total","Indirect.perc","Direct.perc"))
+
+summaryDataMelt$Adversity.2 <- factor(summaryDataMelt$Adversity.2, 
+                                      levels = c("parcruelty", "mompsych","oneadult","faminstability",
+                                                 "Fscore","abuse","nbhqual"))
+
+summaryDataMelt$Labels <- c(rep("Number of CpGs", 12), 
+                            rep("Indirect effect (%)",12),
+                            rep("Direct effect (%)", 12),
+                            rep("Total effect", 12))
+summaryDataMelt$Labels <- factor(summaryDataMelt$Labels,
+                                 levels = c("Number of CpGs","Total effect", "Indirect effect (%)",
+                                            "Direct effect (%)"))
+vh_lines <- data.frame(Labels = c("Direct effect (%)"),
+                       yint = c(100))
+    
+ggplot(summaryDataMelt[!summaryDataMelt$Adversity.2 %in% c("abuse","nbhqual"),],
+       aes(x = Adversity.2, y = value, fill= Adversity.2, alpha = dataset))+
+  geom_bar(stat= 'identity', col ="black", 
+           position = position_dodge2(preserve = "single", padding = 0.3, width = 0.7))+
+  facet_wrap(~Labels, scales= "free_y")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_hline(data =vh_lines, aes(yintercept = yint), linetype=2)+
+  scale_alpha_manual(values = c(1, 0.3), "Dataset")+
+  scale_fill_viridis(discrete=T, guide = "none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, size=12),
+        axis.text.y = element_text(size =12),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size=12),
+        strip.text =element_text(size=12))+
+  scale_x_discrete("", labels  = c("Caregiver physical/\nemotional abuse", "Maternal psychopathology",
+                               "One adult household", "Family instability","Financial hardship"))+
+  
+  ylab("")
+
+summaryDataMelt[summaryDataMelt$Adversity.2=="mompsych",]
+
+
+#same but for ever
+# summaryDataEver <- rbind(data.frame(summaryEver, dataset ="FFCWS"),
+#                      data.frame(alspacEverScaledSum, dataset= "ALSPAC"))
+# summaryDataEver$Adversity.2 <- summaryData$Adversity.2
+# summaryDataEver[,c("Adversity","Adversity.2")]
+# 
+# summaryDataEverMelt <- melt(summaryDataEver[,c("Adversity.2","nCpGs","Indirect.perc","Direct.perc","Total","dataset")])
+# head(summaryDataEverMelt)
+# summaryDataEverMelt$dataset <- factor(summaryDataEverMelt$dataset, levels = c("ALSPAC","FFCWS"))
+# summaryDataEverMelt$variable <- factor(summaryDataEverMelt$variable,
+#                                    levels = c("nCpGs","Total","Indirect.perc","Direct.perc"))
+# 
+# summaryDataEverMelt$Adversity.2 <- factor(summaryDataEverMelt$Adversity.2, 
+#                                       levels = c("parcruelty", "mompsych","oneadult","faminstability",
+#                                                  "Fscore","abuse","nbhqual"))
+# 
+# summaryDataEverMelt$Labels <- c(rep("Number of CpGs", 12), 
+#                             rep("Indirect effect (%)",12),
+#                             rep("Direct effect (%)", 12),
+#                             rep("Total effect", 12))
+# summaryDataEverMelt$Labels <- factor(summaryDataEverMelt$Labels,
+#                                  levels = c("Number of CpGs","Total effect", "Indirect effect (%)",
+#                                             "Direct effect (%)"))
+# 
+# vh_lines <- data.frame(Labels = c("Direct effect (%)"),
+#                        yint = c(100))
+# 
+# ggplot(summaryDataEverMelt[!summaryDataEverMelt$Adversity.2 %in% c("abuse","nbhqual"),],
+#        aes(x = Adversity.2, y = value, fill= Adversity.2, alpha = dataset))+
+#   geom_bar(stat= 'identity', col ="black", 
+#            position = position_dodge2(preserve = "single", padding = 0.3, width = 0.7))+
+#   facet_wrap(~Labels, scales= "free_y")+
+#   theme_classic()+
+#   geom_hline(yintercept = 0)+
+#   geom_hline(data =vh_lines, aes(yintercept = yint), linetype=2)+
+#   scale_alpha_manual(values = c(1, 0.3), "Dataset")+
+#   scale_fill_viridis(discrete=T, guide = "none")+
+#   theme(axis.text.x = element_text(angle=45, hjust=1))+
+#   scale_x_discrete("", labels  = c("Caregiver physical/\nemotional abuse", "Maternal psychopathology",
+#                                "One adult household", "Family instability","Financial hardship"))+
+#   ylab("")
+
+```
+
+*GenR loading ACEs*
+```{r}
+load("GenR_site_replication_2022-05-27.rdata", verbose=T)
+
+allMediationGenR <- allMediation
+head(allMediationGenR)
+allMediationGenR$Analysis = "GenR"
+genRsummary <- makeSummary(allMediationGenR)
+genRsummary
+
+for(i in unique(alspac$Adversity)){
+  if(i == unique(alspac$Adversity)[[1]]){ genRsummarySpecific <- data.frame()}
+  print(i)
+  temp <- allMediationGenR[allMediationGenR$CpG %in% alspac$CpG[alspac$Adversity ==i],]
+  temp$Analysis <- i 
+  tempSummary <- makeSummary(temp)
+  
+  genRsummarySpecific <- rbind(genRsummarySpecific, tempSummary)
+  rm(temp, tempSummary)
+  
+}
+
+genRsummarySpecific
+
+ggplot(rbind(genRsummarySpecific,genRsummary), aes(x = Analysis, y = Indirect.perc, fill = Adversity))+
+  geom_bar(stat ='identity', position ="dodge")+
+  theme_classic()
+
+ggplot(genRsummarySpecific[genRsummarySpecific$Analysis %in% c("abuse","parc"),], 
+       aes(x = Analysis, y = Indirect.perc, fill = Adversity))+
+  geom_bar(stat ='identity', position ="dodge")+
+  theme_classic()
+
+
+
+
+```
+
+*GenR CpG effects ACEs*
+```{r}
+alspacMedSP.2 <- alspacSP #### using the scaled data? 
+alspacMedSP.2$Adversity <- limma::strsplit2(alspacMedSP.2$Adversity, "_")[,1]
+alspacMedSP.2$Unique <- paste(alspacMedSP.2$CpG, alspacMedSP.2$Adversity, sep = "_")
+alspacMedSP.2 <- alspacMedSP.2[alspacMedSP.2$Mediation =="Prop. Mediated",]
+alspacMedSP.2 <- alspacMedSP.2[alspacMedSP.2$Adversity %in% c("abuse","parcruelty"),]
+alspacMedSP.2$Analysis <- "ALSPAC"
+#
+genRFilt <- allMediationGenR[allMediationGenR$CpG %in% alspacMedSP.2$CpG,]
+genRFilt <- genRFilt[genRFilt$Mediation =="Prop. Mediated",]
+head(genRFilt)
+genRFilt$Analysis <- genRFilt$Adversity
+genRFilt$Adversity <- "abuse"
+genRFilt$Adversity[genRFilt$CpG %in% alspacMedSP.2$CpG[alspacMedSP.2$Adversity !="abuse"]] <- "parcruelty"
+head(genRFilt)
+genRFilt$Unique <- paste(genRFilt$CpG, genRFilt$Adversity, sep ="_")
+
+alspacMedSP.2
+
+tableS7A <- data.frame(CpG = genRFilt$CpG, 
+                       Adversity = genRFilt$Adversity,
+                       ALSPAC = alspacMedSP.2$Estimate[match(genRFilt$Unique, 
+                                                                  alspacMedSP.2$Unique)],
+                       ALPAC_CIL = alspacMedSP.2$CI.Lower[match(genRFilt$Unique, 
+                                                                  alspacMedSP.2$Unique)],
+                       ALPAC_CIU = alspacMedSP.2$CI.Upper[match(genRFilt$Unique, 
+                                                                  alspacMedSP.2$Unique)],
+                       ALPAC_pval = alspacMedSP.2$p.value[match(genRFilt$Unique, 
+                                                                  alspacMedSP.2$Unique)],
+                       GenR = genRFilt$Estimate,
+                       GenR_CIL = genRFilt$CI.Lower,
+                       GenR_CIU = genRFilt$CI.Upper, 
+                       GenR_pval = genRFilt$p.value, 
+                       Analysis  = genRFilt$Analysis
+                       )
+write.table(tableS7A, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - mediation/Replication/Tables/GenR_cpgs_SP_2022-09-19.txt", sep ="\t", quote=F,
+            col.names=T, row.names=F)
+
+
+cpgEffectGenR <- data.frame(CpG = genRFilt$CpG, 
+                            Adversity = genRFilt$Adversity,
+                            ALSPAC = alspacMedSP.2$Estimate[match(genRFilt$Unique, 
+                                                                  alspacMedSP.2$Unique)]*100,
+                            GenR = genRFilt$Estimate*100,
+                            Analysis = genRFilt$Analysis
+                            )
+
+cpgEffectGenR$Direction <- ifelse(cpgEffectGenR$ALSPAC * cpgEffectGenR$GenR >0, "Concordant","Discordant")
+table(cpgEffectGenR$Direction) #9 concordant, 24 discordant
+
+cpgEffectGenR$Analysis <- factor(cpgEffectGenR$Analysis, 
+                                 levels =c("ALSPAC",levels(cpgEffectGenR$Analysis)))
+cpgEffectGenR$Adversity <- factor(cpgEffectGenR$Adversity, levels = c("parcruelty","abuse"))
+
+a <- ggplot(cpgEffectGenR, aes( x = ALSPAC, y = GenR, shape = Adversity, col = Analysis))+
+  geom_point(size = 2.5)+
+  geom_hline(yintercept = 0)+
+  geom_abline(linetype = 3)+
+  geom_vline(xintercept = 0)+
+  theme_bw()+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  xlim(-40,40)+
+  ylim(-65,50)+
+  scale_shape_discrete("Adversity", labels = c("Caregiver physical/\nemotional abuse",
+                                               "Physical/sexual abuse\n(by anyone)"
+                                                      ))+
+  scale_color_viridis("Analysis", discrete=T, end = 0.8,
+                      labels = c("ALSPAC",
+                                 "Total ACEs","Physical violence","Sexual violence"), drop=F)+
+  geom_text(data = cpgEffectGenR[cpgEffectGenR$GenR < c(-20),],
+            aes(label = CpG), col ="black", hjust = c(0,0,1), vjust = c(1.2,1.2,1.2))+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+
+interest <- cpgEffectGenR$CpG[cpgEffectGenR$GenR<c(-20)]
+  
+
+forestGenR <- rbind(data.frame(CpG = alspacMedSP.2$CpG, 
+                                Adversity = alspacMedSP.2$Adversity, 
+                                Estimate = alspacMedSP.2$Estimate*100, 
+                                CI.Lower = alspacMedSP.2$CI.Lower*100, 
+                                CI.Upper = alspacMedSP.2$CI.Upper*100,
+                                Dataset = "ALSPAC",
+                               Analysis = "ALSPAC"),
+                     data.frame(CpG = genRFilt$CpG, 
+                                Adversity = genRFilt$Adversity,
+                                Estimate = genRFilt$Estimate*100, 
+                                CI.Lower = genRFilt$CI.Lower*100, 
+                                CI.Upper = genRFilt$CI.Upper*100,
+                                Dataset = "GenR",
+                                Analysis = paste0("GenR - ", genRFilt$Analysis)))
+
+#forestGenR[grep("cg09191574", forestGenR$CpG),]
+forestGenR$Adversity <- factor(forestGenR$Adversity, levels = c("parcruelty","abuse"))
+
+b <- ggplot(forestGenR[forestGenR$CpG %in% interest,], 
+       aes( y = CpG, group = Analysis, col = Analysis))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  # scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+  #                                 "One adult household"),
+  #                      values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_shape_discrete("ALSPAC adversity", labels = c("Caregiver physical/\nemotional abuse",
+                                                      "Physical/sexual abuse\n(by anyone)"))+
+  scale_color_viridis(discrete=T, end = 0.8, 
+                      labels = c("ALSPAC","GenR - Total ACEs",
+                                 "GenR - Physical violence",
+                                 "GenR - Sexual violence"))+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+
+
+leg <- cowplot::get_legend(a)
+
+gridExtra::grid.arrange(a+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, face = "bold"))+
+                                ggtitle("A"),
+                        b+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, hjust =0.1, 
+                                                          face = "bold"))+
+                                ggtitle("B"), 
+                        nrow=1)
+gridExtra::grid.arrange(leg)
+
+
+
+## EVER 
+alspacMedEver.2 <- alspacEver #### using the scaled data? 
+alspacMedEver.2$Adversity <- limma::strsplit2(alspacMedEver.2$Adversity, "_")[,1]
+alspacMedEver.2$Unique <- paste(alspacMedEver.2$CpG, alspacMedEver.2$Adversity, sep = "_")
+alspacMedEver.2 <- alspacMedEver.2[alspacMedEver.2$Mediation =="Prop. Mediated",]
+alspacMedEver.2 <- alspacMedEver.2[alspacMedEver.2$Adversity %in% c("abus","parc"),]
+alspacMedEver.2$Analysis <- "ALSPAC"
+#
+genRFiltEver <- allMediationGenR[allMediationGenR$CpG %in% alspacMedEver.2$CpG,]
+genRFiltEver <- genRFiltEver[genRFiltEver$Mediation =="Prop. Mediated",]
+head(genRFiltEver)
+genRFiltEver$Analysis <- genRFiltEver$Adversity
+genRFiltEver$Adversity <- "abus"
+genRFiltEver$Adversity[genRFiltEver$CpG %in% alspacMedEver.2$CpG[alspacMedEver.2$Adversity !="abus"]] <- "parc"
+head(genRFiltEver)
+genRFiltEver$Unique <- paste(genRFiltEver$CpG, genRFiltEver$Adversity, sep ="_")
+
+tableS7B <- data.frame(CpG = genRFiltEver$CpG, 
+                       Adversity = genRFiltEver$Adversity,
+                       ALSPAC_EV = alspacMedEver.2$Estimate[match(genRFiltEver$Unique, 
+                                                                  alspacMedEver.2$Unique)],
+                       ALPAC_EV_CIL = alspacMedEver.2$CI.Lower[match(genRFiltEver$Unique, 
+                                                                  alspacMedEver.2$Unique)],
+                       ALPAC_EV_CIU = alspacMedEver.2$CI.Upper[match(genRFiltEver$Unique, 
+                                                                  alspacMedEver.2$Unique)],
+                       ALPAC_EV_pval = alspacMedEver.2$p.value[match(genRFiltEver$Unique, 
+                                                                  alspacMedEver.2$Unique)],
+                       GenR = genRFiltEver$Estimate,
+                       GenR_CIL = genRFiltEver$CI.Lower,
+                       GenR_CIU = genRFiltEver$CI.Upper, 
+                       GenR_pval = genRFiltEver$p.value, 
+                       Analysis  = genRFiltEver$Analysis
+                       )
+write.table(tableS7B, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - mediation/Replication/Tables/GenR_cpgs_Ever_2022-09-19.txt", sep ="\t", quote=F,
+            col.names=T, row.names=F)
+
+
+cpgEffectGenREver <- data.frame(CpG = genRFiltEver$CpG, 
+                            Adversity = genRFiltEver$Adversity,
+                            ALSPAC = alspacMedEver.2$Estimate[match(genRFiltEver$Unique, 
+                                                                  alspacMedEver.2$Unique)]*100,
+                            GenR = genRFiltEver$Estimate*100,
+                            Analysis = genRFiltEver$Analysis
+                            )
+
+cpgEffectGenREver$Direction <- ifelse(cpgEffectGenREver$ALSPAC * cpgEffectGenREver$GenR >0,
+                                      "Concordant","Discordant")
+table(cpgEffectGenREver$Direction) #17 concordant, 16 discordant
+
+cpgToShow <- paste0(cpgEffectGenR$CpG, cpgEffectGenR$Analysis)[cpgEffectGenR$GenR<c(-20)]
+cpgToShow <- c(cpgToShow, 
+               paste0(cpgEffectGenREver$CpG[cpgEffectGenREver$GenR>40],
+                      cpgEffectGenREver$Analysis[cpgEffectGenREver$GenR>40]))
+
+cpgEffectGenREver$Analysis <- factor(cpgEffectGenREver$Analysis,
+                                 levels = c("ALSPAC", levels(cpgEffectGenREver$Analysis)))
+cpgEffectGenREver$Adversity <- factor(cpgEffectGenREver$Adversity, levels = c("parc","abus"))
+
+
+a<- ggplot(cpgEffectGenREver, aes( x = ALSPAC, y = GenR, shape = Adversity, col = Analysis))+
+  geom_point(size = 2.5)+
+  geom_hline(yintercept = 0)+
+  geom_abline(linetype = 3)+
+  geom_vline(xintercept = 0)+
+  theme_bw()+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  # xlim(-40,40)+
+  # ylim(-65,50)+
+  scale_shape_discrete("Adversity", labels = c("Caregiver physical/\nemotional abuse",
+                                               "Physical/sexual abuse\n(by anyone)"
+                                                      ))+
+  scale_color_viridis("Analysis", discrete=T, end = 0.8,
+                      labels = c("ALSPAC",
+                                 "GenR - Total ACEs",
+                                 "GenR - Physical violence",
+                                 "GenR - Sexual violence"), drop=F)+
+   geom_text(data = cpgEffectGenREver[paste0(cpgEffectGenREver$CpG, 
+                                             cpgEffectGenREver$Analysis) %in% cpgToShow,],
+            aes(label = CpG), col ="black", hjust = c(1, 1,-0.1,1), vjust = c(-1,-1,1.2,1))+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+
+interest <- gsub("sexviol9", "", cpgToShow)
+
+forestGenR <- rbind(data.frame(CpG = alspacMedEver.2$CpG, 
+                                Adversity = alspacMedEver.2$Adversity, 
+                                Estimate = alspacMedEver.2$Estimate*100, 
+                                CI.Lower = alspacMedEver.2$CI.Lower*100, 
+                                CI.Upper = alspacMedEver.2$CI.Upper*100,
+                                Dataset = "ALSPAC",
+                               Analysis = "ALSPAC"),
+                     data.frame(CpG = genRFiltEver$CpG, 
+                                Adversity = genRFiltEver$Adversity,
+                                Estimate = genRFiltEver$Estimate*100, 
+                                CI.Lower = genRFiltEver$CI.Lower*100, 
+                                CI.Upper = genRFiltEver$CI.Upper*100,
+                                Dataset = "GenR",
+                                Analysis = paste0("GenR - ", genRFiltEver$Analysis)))
+
+#forestGenR[grep("cg09191574", forestGenR$CpG),]
+forestGenR <- forestGenR[forestGenR$Adversity %in% c("parcruelty","abuse","parc","abus"),]
+forestGenR$Adversity <- gsub("abuse", "abus", gsub("parcruelty","parc",forestGenR$Adversity))
+forestGenR$Adversity <- factor(forestGenR$Adversity, levels = c("parc","abus"))
+
+b <- ggplot(forestGenR[forestGenR$CpG %in% interest,], 
+       aes( y = CpG, group = Analysis, col = Analysis))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  # scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+  #                                 "One adult household"),
+  #                      values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_shape_discrete("Adversity", labels = c("Caregiver physical/\nemotional abuse",
+                                                      "Physical/sexual abuse\n(by anyone)"))+
+  scale_color_viridis(discrete=T, end = 0.8, 
+                      labels = c("ALSPAC","GenR - Total ACEs",
+                                 "GenR - Physical violence",
+                                 "GenR - Sexual violence"))+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+b
+
+leg <- cowplot::get_legend(a)
+
+gridExtra::grid.arrange(a+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, face = "bold"))+
+                                ggtitle("C"),
+                        b+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, hjust =0.1, 
+                                                          face = "bold"))+
+                                ggtitle("D"), 
+                        nrow=1)
+gridExtra::grid.arrange(leg)
+
+```
+
+*Total effect GenR ACEs*
+```{r}
+## USING THE NON-SCALED VALUES
+
+genRcombined <- rbind(genRsummarySpecific[genRsummarySpecific$Analysis %in% c("abuse","parc"),],
+                      alspacSPsum[alspacSPsum$Adversity %in% c("abuse_18m","parcruelty_8m"),])
+genRcombined$Dataset <- c(rep(c("GenR ACE", "GenR physical abuse", "GenR sexual abuse"),2),
+                          "ALSPAC","ALSPAC")
+genRcombined$Adversity.2 <- c(rep("abuse",3), rep("parc",3),"abuse","parc")
+
+genRcombinedMelt <- melt(genRcombined[,c("Adversity.2","nCpGs",
+                                         "Indirect.perc","Direct.perc","Total","Dataset")])
+genRcombinedMelt$Labels <- c(rep("Number of CpGs", 8), 
+                            rep("Indirect effect (%)",8),
+                            rep("Direct effect (%)", 8),
+                            rep("Total effect", 8))
+
+genRcombinedMelt$Labels <- factor(genRcombinedMelt$Labels,
+                                 levels = c("Number of CpGs","Total effect", "Indirect effect (%)",
+                                            "Direct effect (%)"))
+genRcombinedMelt$Adversity.2 <- factor(genRcombinedMelt$Adversity.2, levels =c("parc","abuse"))
+
+vh_lines <- data.frame(Labels = c("Direct effect (%)"),
+                       yint = c(100))
+
+ggplot(genRcombinedMelt,
+       aes(x = Adversity.2, y = value, fill= Dataset))+
+  geom_bar(stat= 'identity', col ="black", alpha=0.77,
+           position = position_dodge2(preserve = "single", padding = 0.3, width = 0.7))+
+  facet_wrap(~Labels, scales= "free_y")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_hline(data =vh_lines, aes(yintercept = yint), linetype=2)+
+  #scale_alpha_manual(values = c(1, 0.3), "Dataset")+
+    scale_fill_viridis(discrete=T, labels = c("ALSPAC","GenR - total ACEs",
+                                            "GenR - Physical violence",
+                                            "GenR - Sexual violence"))+
+  theme(axis.text.x = element_text(angle=45, hjust=1))+
+  scale_x_discrete("", labels  = c("Caregiver physical/\nemotional abuse", "Physical/sexual abuse\n(by anyone)"))+
+  
+  ylab("")
+
+alspacEverSum[alspacEverSum$Adversity %in% c("abus_ever","parc_ever"),]
+
+#EVER-EXPOSED
+genRcombinedEver <- rbind(genRsummarySpecific[genRsummarySpecific$Analysis %in% c("abuse","parc"),],
+                      alspacEverSum[alspacEverSum$Adversity %in% c("abus_ever","parc_ever"),])
+genRcombinedEver$Dataset <- c(rep(c("GenR ACE", "GenR physical abuse", "GenR sexual abuse"),2),
+                          "ALSPAC","ALSPAC")
+genRcombinedEver$Adversity.2 <- c(rep("abuse",3), rep("parc",3),"abuse","parc")
+
+genRcombinedEverMelt <- melt(genRcombinedEver[,c("Adversity.2","nCpGs",
+                                         "Indirect.perc","Direct.perc","Total","Dataset")])
+genRcombinedEverMelt$Labels <- c(rep("Number of CpGs", 8), 
+                            rep("Indirect effect (%)",8),
+                            rep("Direct effect (%)", 8),
+                            rep("Total effect", 8))
+
+genRcombinedEverMelt$Labels <- factor(genRcombinedEverMelt$Labels,
+                                 levels = c("Number of CpGs","Total effect", "Indirect effect (%)",
+                                            "Direct effect (%)"))
+genRcombinedEverMelt$Adversity.2 <- factor(genRcombinedEverMelt$Adversity.2, levels =c("parc","abuse"))
+
+vh_lines <- data.frame(Labels = c("Direct effect (%)"),
+                       yint = c(100))
+
+ggplot(genRcombinedEverMelt,
+       aes(x = Adversity.2, y = value, fill= Dataset))+
+  geom_bar(stat= 'identity', col ="black", alpha =0.77, 
+           position = position_dodge2(preserve = "single", padding = 0.3, width = 0.7))+
+  facet_wrap(~Labels, scales= "free_y")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_hline(data =vh_lines, aes(yintercept = yint), linetype=2)+
+  #scale_alpha_manual(values = c(1, 0.3), "Dataset")+
+  scale_fill_viridis(discrete=T, labels = c("ALSPAC","GenR - Total ACEs",
+                                            "GenR - Physical violence",
+                                            "GenR - Sexual violence"))+
+  theme(axis.text.x = element_text(angle=45, hjust=1))+
+  scale_x_discrete("", labels  = c("Caregiver physical/\nemotional abuse", "Physical/sexual abuse\n(by anyone)"))+
+  
+  ylab("")
+
+
+
+```
+
+*GenR loading Adversity-specific*
+```{r}
+setwd("Replication/Updated_GenR_site_replication/")
+list.files()
+load("GenR_site_replication_faminst6y_updatedN_2022-10-05.Rdata")
+load("GenR_site_replication_fscore3_updatedN_2022-10-05.Rdata", verbose=T)
+load("GenR_site_replication_mpsych3_updatedN_2022-10-05.Rdata", verbose=T)
+load("GenR_site_replication_parcruel3y_updatedN_2022-10-05.Rdata", verbose=T)
+
+genRadversity <- rbind(faminst6.med, fscore3.med, mpsych3.med, parcruel3.med)
+rm(faminst6.med, fscore3.med, mpsych3.med, parcruel3.med)
+head(genRadversity)
+unique(genRadversity$Adversity)
+
+adversityMaster.2 <- c("fscore3","mat.psych3", "faminst.6y", "parcruel.3y")
+names(adversityMaster.2) <- names(adversityMaster)[1:4]
+
+for(i in adversityMaster.2){
+  if(i == adversityMaster.2[1]){genRMediationFilt <- data.frame()}
+  print(i)
+  alspacName <- names(adversityMaster.2[adversityMaster.2 == i])
+  alspacData <- alspac[alspac$Adversity == alspacName,]
+  GenRData <- genRadversity[grep(i, genRadversity$Adversity),]
+  GenRData <- GenRData[GenRData$CpG %in% as.character(alspacData$CpG),]
+  GenRData$Analysis <- gsub("\\.","", gsub(i, "", GenRData$Adversity))
+  GenRData$Adversity <- i
+  
+  genRMediationFilt <- rbind(genRMediationFilt, GenRData)
+  rm(alspacName, alspacData, GenRData)
+  
+}
+dim(genRMediationFilt)
+makeSummary(genRMediationFilt)
+makeSummary(alspacMedSP)
+
+genRMediationFilt
+
+#new figure
+
+genRMediationFilt.plot <- genRMediationFilt[genRMediationFilt$Mediation=="Prop. Mediated",]
+genRMediationFilt.plot <- genRMediationFilt.plot[order(abs(genRMediationFilt.plot$Estimate), 
+                                                         decreasing =T),]
+table(genRMediationFilt.plot$Adversity)
+genRMediationFilt.plot$Adversity <- factor(genRMediationFilt.plot$Adversity, 
+                                            levels = c("parcruel.3y","mat.psych3",
+                                                       "faminst.6y","fscore3"))
+genRNet <- genRMediationFilt.plot %>% group_by(Adversity) %>% 
+  summarize(medEffect = round(sum(Estimate*100)))
+genRNet$medEffect2 <- ifelse(genRNet$medEffect>0, paste0("+", genRNet$medEffect,"%"), 
+                              paste0(genRNet$medEffect,"%"))
+
+
+b <- ggplot(genRMediationFilt.plot, 
+       aes(x = Adversity, y =Estimate*100, fill = Estimate<0))+
+  geom_bar(stat= 'identity', position="stack", col="black")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data = genRNet, aes(y = 20, label = medEffect2, x = Adversity), inherit.aes = F)+
+  scale_x_discrete(labels = c("Caregiver physical\nor emotional abuse","Maternal\npsychopathology",
+                              "Family\ninstability","Financial\nhardship"))+
+  theme(axis.text.x = element_text(angle =45, hjust=1))+
+  facet_wrap(~Adversity, scales  ="free", nrow=1)
+  
+
+library(gridExtra)
+grid.arrange(a,b,nrow=1)
+
+```
+
+
+```{r}
+alspacMedSP.2 <- alspacMedSP #### using the scaled data? 
+alspacMedSP.2$Adversity <- limma::strsplit2(alspacMedSP.2$Adversity, "_")[,1]
+alspacMedSP.2$Adversity[alspacMedSP.2$Adversity =="r"] <- "faminstability"
+alspacMedSP.2$Unique <- paste(alspacMedSP.2$CpG, alspacMedSP.2$Adversity, sep = "_")
+alspacMedSP.2 <- alspacMedSP.2[alspacMedSP.2$Mediation =="Prop. Mediated",]
+
+#
+genRMediationFilt.2 <- genRMediationFilt
+adversityNames <- unique(genRMediationFilt.2$Adversity)
+names(adversityNames) <- c("Fscore","mompsych", "faminstability","parcruelty")
+
+genRMediationFilt.2$Adversity <- names(adversityNames)[match(genRMediationFilt.2$Adversity,
+                                                           adversityNames)]
+
+genRMediationFilt.2$Unique <- paste(genRMediationFilt.2$CpG, genRMediationFilt.2$Adversity, 
+                                    sep ="_")
+genRMediationFilt.2 <- genRMediationFilt.2[genRMediationFilt.2$Mediation =="Prop. Mediated",]
+
+alspacMedSP.2 <- alspacMedSP.2[alspacMedSP.2$Adversity %in% genRMediationFilt.2$Adversity, ]
+genRMediationFilt.2 <- genRMediationFilt.2[match(alspacMedSP.2$Unique, 
+                                                 genRMediationFilt.2$Unique),]
+
+tableSX <- data.frame(Adversity = alspacMedSP.2$Adversity, 
+                      CpG = alspacMedSP.2$CpG, 
+                      ALSPAC_effect = alspacMedSP.2$Estimate,
+                      ALSPAC_CIL <- alspacMedSP.2$CI.Lower,
+                      ALSPAC_CIU <- alspacMedSP.2$CI.Upper,
+                      ALSPAC_Pval <- alspacMedSP.2$p.value,
+                      FFCWS_effect = genRMediationFilt.2$Estimate,
+                      FFCWS_CIL <- genRMediationFilt.2$CI.Lower,
+                      FFCWS_CIU <- genRMediationFilt.2$CI.Upper,
+                      FFCWS_Pval <- genRMediationFilt.2$p.value
+                      )
+write.table(tableSX, file = "~/Dropbox (Partners HealthCare)/Dunn_shared/ALSPAC/Epigenetic/Paper Draft - mediation/Replication/Tables/TableSX_GenR_adversity_cpgs_2022-10-17.txt", sep = "\t", quote=F, 
+            row.names=F, col.names = T)
+
+cpgEffect <- data.frame(CpG = alspacMedSP.2$CpG, 
+                        Adversity = alspacMedSP.2$Adversity, 
+                        ALSPAC = alspacMedSP.2$Estimate*100, 
+                        GenR = genRMediationFilt.2$Estimate*100)
+cpgEffect$Direction <- ifelse(cpgEffect$ALSPAC * cpgEffect$GenR >0, "Concordant","Discordant")
+table(cpgEffect$Direction) #21 conc, 17 disc
+cpgEffect <- cpgEffect[!is.na(cpgEffect$GenR),]
+
+cpgEffect$Adversity <- factor(cpgEffect$Adversity, levels = c("parcruelty","mompsych",
+                                                    "faminstability","Fscore"))
+
+a <- ggplot(cpgEffect, aes( x = ALSPAC, y = GenR, shape = Adversity, col = Direction))+
+  geom_point(size = 2.5)+
+  geom_hline(yintercept = 0)+
+  geom_abline(linetype = 3)+
+  geom_vline(xintercept = 0)+
+  theme_bw()+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  #scale_color_viridis(discrete=T)+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_color_viridis(labels = c("Concordant (21)", "Discordant (17)"),
+                      discrete=T, end =0.8)+
+  scale_y_continuous(breaks = seq(-100, 100, 25), limits = c(-100,100))+
+  geom_text(data = cpgEffect[cpgEffect$GenR<c(-50),],
+            aes(label = CpG), hjust =c(-0.1,-0.05), vjust=c(0,1.1), col = "black")+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12))
+a
+
+#cg06451157 =  HLA-H
+#cg07308232 = C7orf50
+
+interest <- cpgEffect$CpG[cpgEffect$GenR<c(-50)]
+alspac[alspac$CpG %in% interest, ]  
+forestGenR <- rbind(data.frame(CpG = alspacMedSP.2$CpG, 
+                                Adversity = alspacMedSP.2$Adversity, 
+                                Estimate = alspacMedSP.2$Estimate*100, 
+                                CI.Lower = alspacMedSP.2$CI.Lower*100, 
+                                CI.Upper = alspacMedSP.2$CI.Upper*100,
+                                Dataset = "ALSPAC"),
+                     data.frame(CpG = genRMediationFilt.2$CpG, 
+                                Adversity = genRMediationFilt.2$Adversity,
+                                Estimate = genRMediationFilt.2$Estimate*100, 
+                                CI.Lower = genRMediationFilt.2$CI.Lower*100, 
+                                CI.Upper = genRMediationFilt.2$CI.Upper*100,
+                                Dataset = "GenR"))
+
+forestGenR$Adversity <- factor(forestGenR$Adversity, 
+                                levels = c("parcruelty","mompsych",
+                                                    "faminstability","Fscore"))
+
+b<- ggplot(forestGenR[forestGenR$CpG %in% interest,], 
+       aes( y = CpG, group = Dataset, col = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Maternal psychopathology"),
+                       values = c(17))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12))
+
+leg <- cowplot::get_legend(a)
+leg.2 <- cowplot::get_legend(b)
+interest
+gridExtra::grid.arrange(a+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, face = "bold"))+
+                                ggtitle("A"),
+                        b+theme(legend.position = "none",
+                                plot.title.position = "plot",
+                                plot.title = element_text(size=22, vjust = -4, hjust =0.1, 
+                                                          face = "bold"))+
+                                ggtitle("B"), 
+                        nrow=1)
+
+gridExtra::grid.arrange(leg, leg.2, nrow=1)
+```
+
+
+```{r}
+summaryGenRadv <- makeSummary(genRMediationFilt)
+summaryData <- rbind(data.frame(summaryGenRadv, dataset ="GenR"),
+                     data.frame(alspacSPsum, dataset= "ALSPAC"))
+summaryData$Adversity.2 <- limma::strsplit2(summaryData$Adversity, "_")[,1]
+summaryData$Adversity.2[summaryData$Adversity.2=="r"] <- "faminstability"
+summaryData$Adversity.2 <- gsub("parcruel.3y", "parcruelty", 
+                                gsub("faminst.6y","faminstability", 
+                                     gsub("mat.psych3", "mompsych", 
+                                          gsub("fscore3","Fscore", summaryData$Adversity.2))))
+
+summaryDataMelt <- melt(summaryData[,c("Adversity.2","nCpGs",
+                                       "Indirect.perc","Direct.perc","Total","dataset")])
+head(summaryDataMelt)
+summaryDataMelt$dataset <- factor(summaryDataMelt$dataset, levels = c("ALSPAC","GenR"))
+summaryDataMelt$variable <- factor(summaryDataMelt$variable,
+                                   levels = c("nCpGs","Total","Indirect.perc","Direct.perc"))
+
+summaryDataMelt$Adversity.2 <- factor(summaryDataMelt$Adversity.2, 
+                                      levels = c("parcruelty",
+                                                 "mompsych","oneadult","faminstability",
+                                                 "Fscore","abuse","nbhqual"))
+
+summaryDataMelt$Labels <- c(rep("Number of CpGs", 11), 
+                            rep("Indirect effect (%)",11),
+                            rep("Direct effect (%)", 11),
+                            rep("Total effect", 11))
+summaryDataMelt$Labels <- factor(summaryDataMelt$Labels,
+                                 levels = c("Number of CpGs","Total effect", "Indirect effect (%)",
+                                            "Direct effect (%)"))
+vh_lines <- data.frame(Labels = c("Direct effect (%)"),
+                       yint = c(100))
+    
+ggplot(summaryDataMelt[!summaryDataMelt$Adversity.2 %in% c("abuse","oneadult","nbhqual"),],
+       aes(x = Adversity.2, y = value, fill= Adversity.2, alpha = dataset))+
+  geom_bar(stat= 'identity', col ="black", 
+           position = position_dodge2(preserve = "single", padding = 0.3, width = 0.7))+
+  facet_wrap(~Labels, scales= "free_y")+
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_hline(data =vh_lines, aes(yintercept = yint), linetype=2)+
+  scale_alpha_manual(values = c(1, 0.3), "Dataset")+
+  scale_fill_viridis(discrete=T, guide = "none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, size=12),
+        axis.text.y = element_text(size =12),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size=12),
+        strip.text =element_text(size=12))+
+  scale_x_discrete("", labels  = c("Caregiver physical/\nemotional abuse", 
+                                   "Maternal psychopathology",
+                               "Family instability","Financial hardship"))+
+  
+  ylab("")
+alspac[alspac$CpG %in% interest,]
+
+```
+
+

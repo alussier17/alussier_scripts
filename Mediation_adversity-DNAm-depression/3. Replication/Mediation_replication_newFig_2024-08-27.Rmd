@@ -1,0 +1,1368 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(tidyr)
+```
+
+*Making master*
+```{r}
+#ALSPAC
+load("Mediation_sites_2022-11-28.rdata", verbose = T)
+alspac <- med.data
+head(alspac)
+
+alspac$Prop..mediated <- alspac$alphaxbeta/alspac$`sum_delta + alpha*beta`
+data.frame(alspac[1,])
+al2 <- data.frame(CpG = alspac$CpG, Adversity = alspac$Adversity,
+                 ACME = alspac$alphaxbeta, ADE = alspac$delta, 
+                 `Total Effect`  = alspac$`sum_delta + alpha*beta`, 
+                 `Prop. Mediated` = alspac$Prop..mediated)
+al2$CI.lower <- NA
+al2$CI.upper <- NA
+
+
+#scaled data
+load("ALSPAC.mediation.replication.betas.scaled_2022-09-14.Rdata", verbose=T)
+alspacMedSPscaled <- alspacMedSP
+#unscaled
+load("ALSPAC.mediation.replication.betas_2022-09-14.Rdata", verbose=T)
+alspacMedSPunscaled <- alspacMedSP
+alspacMedSPunscaled[1:4,]
+
+
+
+
+#FFCWS
+load("FFCWS_site_replication_2022-08-13.Rdata",
+     verbose=T)
+dim(allMediation)#2728, 7
+
+adversityMaster <- c(Fscore = "fh", mompsych = "dep", r_faminst = "faminst", parc = "par", oneadult = "oneadult")
+
+for(i in adversityMaster){
+  if(i == adversityMaster[1]){allMediationFilt <- data.frame()}
+  print(i)
+  alspacName <- names(adversityMaster[adversityMaster == i])
+  alspacData <- alspac[alspac$Adversity == alspacName,]
+  ffcwsData <- allMediation[grep(i, allMediation$Adversity),]
+  ffcwsData <- ffcwsData[ffcwsData$CpG %in% as.character(alspacData$CpG),]
+  ffcwsData$Analysis <- gsub("\\.","", gsub(i, "", ffcwsData$Adversity))
+  ffcwsData$Adversity <- i
+  
+  allMediationFilt <- rbind(allMediationFilt, ffcwsData)
+  rm(alspacName, alspacData, ffcwsData)
+  
+}
+tail(allMediationFilt)
+dim(allMediationFilt)
+allMediationFiltEver <- allMediationFilt[allMediationFilt$Analysis =="ever",]
+allMediationFiltSP <- allMediationFilt[allMediationFilt$Analysis !="ever",]
+
+rm(allMediation, allMediationFilt)
+
+#GenR ACEs
+load("GenR_site_replication_2022-05-27.rdata", verbose=T)
+allMediation <- allMediation[allMediation$CpG %in% alspac$CpG[alspac$Adversity %in% c("abuse","parc")],]
+head(allMediation)
+
+
+#GenR adversities
+setwd("Replication/Updated_GenR_site_replication/")
+list.files()
+load("GenR_site_replication_faminst6y_updatedN_2022-10-05.Rdata")
+load("GenR_site_replication_fscore3_updatedN_2022-10-05.Rdata", verbose=T)
+load("GenR_site_replication_mpsych3_updatedN_2022-10-05.Rdata", verbose=T)
+load("GenR_site_replication_parcruel3y_updatedN_2022-10-05.Rdata", verbose=T)
+
+genRadversity <- rbind(faminst6.med, fscore3.med, mpsych3.med, parcruel3.med)
+rm(faminst6.med, fscore3.med, mpsych3.med, parcruel3.med)
+head(genRadversity)
+unique(genRadversity$Adversity)
+
+adversityMaster.2 <- c("fscore3","mat.psych3", "faminst.6y", "parcruel.3y")
+names(adversityMaster.2) <- names(adversityMaster)[1:4]
+
+for(i in adversityMaster.2){
+  if(i == adversityMaster.2[1]){genRMediationFilt <- data.frame()}
+  print(i)
+  alspacName <- names(adversityMaster.2[adversityMaster.2 == i])
+  alspacData <- alspac[alspac$Adversity == alspacName,]
+  GenRData <- genRadversity[grep(i, genRadversity$Adversity),]
+  GenRData <- GenRData[GenRData$CpG %in% as.character(alspacData$CpG),]
+  GenRData$Analysis <- gsub("\\.","", gsub(i, "", GenRData$Adversity))
+  GenRData$Adversity <- i
+  
+  genRMediationFilt <- rbind(genRMediationFilt, GenRData)
+  rm(alspacName, alspacData, GenRData)
+  
+}
+dim(genRMediationFilt)
+head(alspac)
+
+
+#combining
+al <- alspacMedSPscaled %>% select(CpG, Adversity, Mediation, Estimate) %>% 
+  pivot_wider(names_from = Mediation, values_from = Estimate)
+temp <- alspacMedSPscaled[alspacMedSPscaled$Mediation=="Prop. Mediated",]
+al$CI.lower <- temp$CI.Lower[match(al$CpG, temp$CpG)]
+al$CI.upper <- temp$CI.Upper[match(al$CpG, temp$CpG)]
+
+ffcws <- allMediationFiltSP %>% select(CpG,Adversity, Mediation, Estimate, Analysis) %>%
+  pivot_wider(names_from = Mediation, values_from = Estimate)
+temp <- allMediationFiltSP[allMediationFiltSP$Mediation=="Prop. Mediated",]
+ffcws$CI.lower <- temp$CI.Lower[match(ffcws$CpG, temp$CpG)]
+ffcws$CI.upper <- temp$CI.Upper[match(ffcws$CpG, temp$CpG)]
+allMediationFiltSP[allMediationFiltSP$Adversity == "oneadult" & allMediationFiltSP$Mediation=="Total Effect",]
+
+
+genRace <- allMediation %>% select(CpG,Adversity, Mediation, Estimate) %>%
+  pivot_wider(names_from = Mediation, values_from = Estimate)
+temp <- allMediation[allMediation$Mediation=="Prop. Mediated",]
+genRace$CI.lower <- temp$CI.Lower[match(genRace$CpG, temp$CpG)]
+genRace$CI.upper <- temp$CI.Upper[match(genRace$CpG, temp$CpG)]
+
+
+genR <- genRMediationFilt %>% select(CpG,Adversity, Mediation, Estimate) %>%
+  pivot_wider(names_from = Mediation, values_from = Estimate)
+temp <- genRMediationFilt[genRMediationFilt$Mediation=="Prop. Mediated",]
+genR$CI.lower <- temp$CI.Lower[match(genR$CpG, temp$CpG)]
+genR$CI.upper <- temp$CI.Upper[match(genR$CpG, temp$CpG)]
+
+
+master <- rbind(data.frame(al2, 
+                           cohort = "ALSPAC"),
+                data.frame(ffcws[-which(ffcws$Adversity=="oneadult" & ffcws$Analysis ==5), -3],
+                           cohort = "FFCWS"),
+                data.frame(genR,
+                           cohort = "GenR"),
+                data.frame(genRace,
+                           cohort = "GenR ACE"))
+
+masterRerun <- rbind(data.frame(al, #al is the alspac estimates from the mediation package, some discrepancies here
+                           cohort = "ALSPAC"),
+                data.frame(ffcws[-which(ffcws$Adversity=="oneadult" & ffcws$Analysis ==5), -3],
+                           cohort = "FFCWS"),
+                data.frame(genR,
+                           cohort = "GenR"),
+                data.frame(genRace,
+                           cohort = "GenR ACE"))
+
+
+rm(al, al2, ffcws, genR, genRace, genRadversity, allMediation,  allMediationFiltEver,
+   allMediationFiltSP, alspacMedEver, alspacMedSP, alspacMedSPscaled, alspacMedSPunscaled,
+   genRMediationFilt, alspac, i, temp)
+
+#adversity names - master
+adversityMaster.3 <- c(as.character(unique(master$Adversity[master$cohort=="ALSPAC"])))
+names(adversityMaster.3) <- c("abuse","Fscore","mompsych","nbhqual","oneadult", "parc","r_faminst")
+adversityMasterAll <- c(adversityMaster, adversityMaster.2,adversityMaster.3)
+names(adversityMasterAll)
+
+master$Adversity2 <- names(adversityMasterAll)[match(master$Adversity, adversityMasterAll)]
+
+temp <- master[is.na(master$Adversity2),]
+tempALSPAC <- master[master$cohort=="ALSPAC" & master$Adversity2 %in% c("abuse","parc"),]
+temp$Adversity2 <- tempALSPAC$Adversity2[match(temp$CpG, tempALSPAC$CpG)]
+master[is.na(master$Adversity2),] <- temp
+
+
+#adversity names - masterRerun
+adversityMaster.3 <- c(as.character(unique(masterRerun$Adversity[master$cohort=="ALSPAC"])))
+names(adversityMaster.3) <- c("abuse","parc","Fscore","r_faminst","mompsych","nbhqual", "oneadult")
+adversityMasterAll <- c(adversityMaster, adversityMaster.2,adversityMaster.3)
+names(adversityMasterAll)
+
+masterRerun$Adversity2 <- names(adversityMasterAll)[match(master$Adversity, adversityMasterAll)]
+
+temp <- masterRerun[is.na(masterRerun$Adversity2),]
+tempALSPAC <- masterRerun[masterRerun$cohort=="ALSPAC" & masterRerun$Adversity2 %in% c("abuse","parc"),]
+temp$Adversity2 <- tempALSPAC$Adversity2[match(temp$CpG, tempALSPAC$CpG)]
+masterRerun[is.na(masterRerun$Adversity2),] <- temp
+
+masterRerun[masterRerun$Adversity2=="oneadult" & masterRerun$cohort=="FFCWS",]
+
+rm(adversityMaster, adversityMaster.2, adversityMaster.3, temp, tempALSPAC)
+
+
+```
+
+```{r}
+advMaster <- c("Caregiver physical\nor emotional abuse", 
+                               "Sexual or physical\nabuse (by anyone)", 
+                               "Maternal\npsychopathology", 
+                               "One adult in\nthe household", 
+                               "Family\ninstability", 
+                               "Financial\nhardship", 
+                               "Neighborhood\ndisadvantage")
+names(advMaster) <- c("parc","abuse","mompsych","oneadult","r_faminst","Fscore","nbhqual")
+dim(master)
+master$Adversity2 <- factor(master$Adversity2, 
+                            levels = c("parc","abuse","mompsych","nbhqual","oneadult","r_faminst","Fscore"))
+master$AdversityNames <- advMaster[match(master$Adversity2, names(advMaster))]
+master$AdversityNames <- factor(master$AdversityNames,
+                                levels = advMaster)
+
+master$Direction <- ifelse(master$Total.Effect>0 & master$Prop..Mediated<0, "Protective",
+                           ifelse(master$Total.Effect<0 &master$Prop..Mediated>0, "Protective","Risk"))
+master$Direction2 <- ifelse(abs(master$Prop..Mediated)<0.01, "Neutral", master$Direction)
+master$Direction <- factor(master$Direction, levels = c("Risk","Protective"))
+master$Direction2 <- factor(master$Direction2, levels = c("Risk","Neutral","Protective"))
+
+master$Adversity <- as.character(master$Adversity)
+master$Adversity[master$Adversity=="psyviol9"] <- "physviol9"
+
+
+master2 <- master[order(abs(master$Prop..Mediated), decreasing = T),]
+master2$cohort <- as.character(master2$cohort)
+temp <- master2[master2$cohort =="GenR ACE",] 
+temp$cohort <- paste0("GenR", " - ", gsub("9","",temp$Adversity))
+master2$cohort[master2$cohort =="GenR ACE"] <- temp$cohort
+head(master2)
+dim(master2)
+
+
+netEffects <- master2 %>% group_by(AdversityNames, Adversity2, Adversity, cohort) %>%
+  summarise(MediatedEffect = sum(Prop..Mediated*100), TotalEffect = mean(Total.Effect))
+netEffects$CorrectedEffect <- netEffects$MediatedEffect * sign(netEffects$TotalEffect)
+netEffects$CorrectedEffectPlot <- paste0(round(netEffects$CorrectedEffect),"%")
+netEffects$CorrectedEffectPlot <- ifelse(netEffects$CorrectedEffect>0,
+                                         paste0("+",netEffects$CorrectedEffectPlot),
+                                         netEffects$CorrectedEffectPlot)
+
+
+# ggplot(master2, aes(x = Adversity2, y = Prop..Mediated*100, fill=Direction))+
+#   geom_hline(yintercept = 0, size = 1.2)+
+#   geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77)+
+#   theme_classic()+
+#   facet_wrap(~cohort, scales = "free", nrow=2)+
+#   scale_fill_manual(values = c("#ea4040","#0088c5"))
+  
+
+ggplot(master2, aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0, size = 1.2)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77)+
+  theme_classic()+
+  facet_grid(~Adversity2, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"))+
+  theme(axis.text.x = element_text(angle=45, hjust=1))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects, aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)
+  
+
+ggplot(master2[-c(grep(" - ", master2$cohort)),], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0, size = 1.2)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77)+
+  theme_classic()+
+  facet_grid(~Adversity2, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"))+
+  theme(axis.text.x = element_text(angle=45, hjust=1))+
+  ylab("Percent mediated effect")+
+  xlab("")
+  
+master3 <- master2[-c(which(master2$Adversity=="ace.tot9"),
+                      which(master2$Adversity=="sexviol9" & master2$Adversity2 =="parc")),]
+netEffects2 <- netEffects[-c(which(netEffects$Adversity=="ace.tot9"),
+                      which(netEffects$Adversity=="sexviol9" & netEffects$Adversity2 =="parc")),]
+legendText <- data.frame(AdversityNames = netEffects2$AdversityNames[1], cohort = "ALSPAC",
+                         text = "Direction-corrected mediated effect:")
+
+ggplot(master3, aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects2, aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 300, label = text, x = 0.5),inherit.aes = F, hjust=0,size=3.3)
+
+ggplot(master3[!master3$Adversity2=="nbhqual",], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects2[!netEffects2$Adversity2=="nbhqual",],
+            aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 300, label = text, x = 0.5),inherit.aes = F, hjust=0, size=3.3)
+
+
+# #FFCWS only 
+# ggplot(master3[-c(grep("GenR", master3$cohort),
+#                   which(master3$Adversity2 %in% c("abuse","nbhqual"))),], 
+#        aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+#   geom_hline(yintercept = 0)+
+#   geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, size =0.3)+
+#   theme_classic()+
+#   facet_grid(~AdversityNames, scales = "free", space="free")+
+#   scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+#   theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+#         axis.text.y = element_text(size = 10),
+#         axis.title = element_text(size=12),
+#         panel.border = element_rect(color="black", fill=NA, size=.77))+
+#   ylab("Percent mediated effect")+
+#   xlab("")
+#   
+# #GenR only
+# ggplot(master3[-c(grep("FFCWS", master3$cohort),
+#                   which(master3$Adversity2 %in% c("oneadult","nbhqual"))),], 
+#        aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+#   geom_hline(yintercept = 0)+
+#   geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, size =0.3)+
+#   theme_classic()+
+#   facet_grid(~AdversityNames, scales = "free", space="free")+
+#   scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+#   theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+#         axis.text.y = element_text(size = 10),
+#         axis.title = element_text(size=12),
+#         panel.border = element_rect(color="black", fill=NA, size=.77))+
+#   ylab("Percent mediated effect")+
+#   xlab("")
+# 
+# #stability of direction?
+# ggplot(master3, aes(x= cohort, y = Prop..Mediated*100,group =CpG))+
+#   geom_line(aes(col = Direction))+
+#   geom_point(aes(col = Direction))+
+#   geom_hline(yintercept = 0)+
+#   ylim(-200,200)+
+#   theme_classic()+
+#   facet_grid(~AdversityNames, scales = "free", space="free")+
+#   scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+#   theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+#         axis.text.y = element_text(size = 10),
+#         axis.title = element_text(size=12),
+#         panel.border = element_rect(color="black", fill=NA, size=.77))+
+#   ylab("Percent mediated effect")+
+#   xlab("")
+
+
+
+master4 <- master3[order(master3$Direction, master3$cohort, decreasing = T),]
+master4$CpG <- factor(master4$CpG, levels = unique(master4$CpG))
+
+ggplot(master4, aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction), col="black", alpha=0.77)+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+  
+
+master4$Direction3 <- factor(master4$Direction2, levels = c(levels(master4$Direction2),"Unmeasured"))
+
+ggplot(master4[!master4$Adversity2=="nbhqual",], aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+  
+table(master4$Direction[master4$Adversity2 != "nbhqual"], master4$cohort[master4$Adversity2 != "nbhqual"])
+
+```
+
+*by cohort*
+```{r}
+#ffcws
+ggplot(master3[-c(grep("GenR", master3$cohort),
+                  which(master3$Adversity2 %in% c("abuse","nbhqual"))),], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects2[-c(grep("GenR", netEffects2$cohort),
+                  which(netEffects2$Adversity2 %in% c("abuse","nbhqual"))),],
+            aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 320, label = gsub("corrected ", "corrected\n", text), x = 0.5), 
+                                   inherit.aes = F, hjust=0, size=3.3)+
+  ylim(-100, 350)
+
+ffcwsMaster <- master4[-c(grep("GenR", master4$cohort),
+                  which(master4$Adversity2 %in% c("abuse","nbhqual"))),]
+head(ffcwsMaster)
+t<- ffcwsMaster %>% select(CpG, Adversity2, AdversityNames, cohort, Direction) %>%
+  pivot_wider(names_from = cohort, values_from = Direction) %>% 
+  group_by(CpG, Adversity2, AdversityNames) %>%
+  summarise(consistent = ifelse(ALSPAC ==FFCWS,"Consistent","Discordant"))
+ffcwsMaster$Consistent <- t$consistent[match(paste(ffcwsMaster$CpG, ffcwsMaster$Adversity2),
+                                             paste(t$CpG, t$Adversity2))]
+ffcwsMaster$Consistent[is.na(ffcwsMaster$Consistent)] <- "Missing"
+ffcwsMaster$Consistent <- factor(ffcwsMaster$Consistent, levels = c("Missing","Discordant","Consistent"))
+ffcwsMaster <- ffcwsMaster[order(ffcwsMaster$cohort,ffcwsMaster$Direction, ffcwsMaster$Consistent),]
+ffcwsMaster$CpG <- factor(ffcwsMaster$CpG, levels = unique(ffcwsMaster$CpG))
+
+ggplot(ffcwsMaster, aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+  
+
+
+
+#genR
+ggplot(master2[-c(grep("FFCWS", master2$cohort),
+                  which(master2$Adversity2 %in% c("oneadult","nbhqual"))),], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects[-c(grep("FFCWS", netEffects$cohort),
+                  which(netEffects$Adversity2 %in% c("oneadult","nbhqual"))),],
+            aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 300, label = text, x = 0.5),inherit.aes = F, hjust=0, size=3.3)
+
+genrMaster <- master2[-c(grep("FFCWS", master2$cohort),
+                  which(master2$Adversity2 %in% c("oneadult","nbhqual"))),]
+head(genrMaster)
+t<- genrMaster %>% select(CpG, Adversity2, AdversityNames, cohort, Direction) %>%
+  pivot_wider(names_from = cohort, values_from = Direction) %>% 
+  group_by(CpG, Adversity2, AdversityNames) %>%
+  summarise(consistentGenR = ifelse(ALSPAC ==GenR,"Consistent","Discordant"),
+            consistentGenRsex = ifelse(ALSPAC ==`GenR - sexviol`,"Consistent","Discordant"),
+            consistentGenRphys = ifelse(ALSPAC ==`GenR - physviol`,"Consistent","Discordant"),
+            consistentGenRstotal = ifelse(ALSPAC ==`GenR - ace.tot`,"Consistent","Discordant"))
+
+genrMaster<- cbind(genrMaster,
+                   t[match(paste(genrMaster$CpG, genrMaster$Adversity2), paste(t$CpG, t$Adversity2)),4:7])
+
+genrMaster$consistentGenR[is.na(genrMaster$consistentGenR) & genrMaster$Adversity2=="Fscore"] <- "Missing"
+genrMaster$consistentGenR <- factor(genrMaster$consistentGenR, 
+                                    levels = c("Missing","Discordant","Consistent"))
+genrMaster$consistentGenRsex <- factor(genrMaster$consistentGenRsex, 
+                                       levels = c("Discordant","Consistent"))
+genrMaster$consistentGenRphys <- factor(genrMaster$consistentGenRphys, 
+                                        levels = c("Discordant","Consistent"))
+genrMaster$consistentGenRstotal <- factor(genrMaster$consistentGenRstotal, 
+                                          levels = c("Discordant","Consistent"))
+genrMaster$Direction <- factor(genrMaster$Direction, levels = c("Risk","Protective"))
+
+genrMaster <- genrMaster[order(genrMaster$cohort, genrMaster$Direction, genrMaster$consistentGenR,
+                               genrMaster$consistentGenRsex,genrMaster$consistentGenRphys, 
+                               genrMaster$consistentGenRstot),]
+genrMaster$CpG <- as.character(genrMaster$CpG)
+genrMaster$CpG[genrMaster$Adversity2=="Fscore"] <- paste0(" ", 
+                                                          genrMaster$CpG[genrMaster$Adversity2=="Fscore"])
+genrMaster$CpG <- factor(genrMaster$CpG, levels = unique(genrMaster$CpG))
+
+
+ggplot(genrMaster, aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+  
+
+#genR removing extra ACEs
+ggplot(master3[-c(grep("FFCWS", master3$cohort),
+                  which(master3$Adversity2 %in% c("oneadult","nbhqual"))),], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Percent mediated effect")+
+  xlab("")+
+  geom_text(data=netEffects2[-c(grep("FFCWS", netEffects2$cohort),
+                  which(netEffects2$Adversity2 %in% c("oneadult","nbhqual"))),],
+            aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 300, label = text, x = 0.5),inherit.aes = F, hjust=0, size=3.3)
+
+temp <- genrMaster[!genrMaster$Adversity =="ace.tot9",]
+temp <- temp[-which(temp$Adversity =="sexviol9" & temp$Adversity2=="parc"),]
+
+
+ggplot(temp, aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+  
+rm(temp, t)
+
+```
+
+*reordered main* 
+```{r}
+master5 <- master4[!master4$Adversity2=="nbhqual",]
+
+t<- master5 %>% select(CpG, Adversity2, AdversityNames, cohort, Direction) %>%
+  pivot_wider(names_from = cohort, values_from = Direction) %>% 
+  group_by(CpG, Adversity2, AdversityNames) %>%
+  summarise(consistentFFCWS = ifelse(ALSPAC ==FFCWS,"Consistent","Discordant"),
+            consistentGenR = ifelse(ALSPAC ==GenR,"Consistent","Discordant"),
+            consistentGenRsex = ifelse(ALSPAC ==`GenR - sexviol`,"Consistent","Discordant"),
+            consistentGenRphys = ifelse(ALSPAC ==`GenR - physviol`,"Consistent","Discordant"))
+master5<- cbind(master5,
+                   t[match(paste(master5$CpG, master5$Adversity2), paste(t$CpG, t$Adversity2)),4:7])
+rm(t)
+
+master5$consistentFFCWS[is.na(master5$consistentFFCWS) & master5$Adversity2=="Fscore"] <- "Missing"
+master5$consistentGenR[is.na(master5$consistentGenR) & master5$Adversity2=="Fscore"] <- "Missing"
+
+master5$consistentFFCWS <- factor(master5$consistentFFCWS, 
+                                          levels = c("Missing","Discordant","Consistent"))
+master5$consistentGenR <- factor(master5$consistentGenR, 
+                                    levels = c("Missing","Discordant","Consistent"))
+master5$consistentGenRsex <- factor(master5$consistentGenRsex, 
+                                       levels = c("Discordant","Consistent"))
+master5$consistentGenRphys <- factor(master5$consistentGenRphys, 
+                                        levels = c("Discordant","Consistent"))
+
+master5$Direction <- factor(master5$Direction, levels = c("Risk","Protective"))
+
+master5 <- master5[order(master5$cohort, master5$Direction, master5$consistentFFCWS, master5$consistentGenR,
+                               master5$consistentGenRsex,master5$consistentGenRphys),]
+master5$CpG <- as.character(master5$CpG)
+master5$CpG[master5$Adversity2=="Fscore"] <- paste0(" ", master5$CpG[master5$Adversity2=="Fscore"])
+master5$CpG <- factor(master5$CpG, levels = unique(master5$CpG))
+
+ggplot(master5, aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+
+
+### redoing figure without ACES at all ### FIGURE FOR PAPER
+a<-ggplot(master5[-c(grep(" - ", master5$cohort),
+                  which(master5$Adversity2=="abuse")),], aes(x= cohort, y = CpG))+
+  geom_tile(aes(fill=Direction, alpha = Direction2), col="black")+
+  theme_classic()+
+  facet_wrap(~AdversityNames, scales = "free", nrow=1)+
+  #ggh4x::facet_grid2(~AdversityNames, scales = "free", independent="y")+
+  # scale_fill_manual(values = c("#ea4040","#e5e3d0","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+  #                   labels=c("Risk","Neutral (<1% mediated)","Protective","Unmeasured"), drop=F)+
+  scale_fill_manual(values = c("#ea4040","#0088c5","white"),"DNAm effect on\ndepressive symptoms",
+                     labels=c("Risk-increasing","Protective"), drop=F)+
+  scale_alpha_manual(values = c(0.77, 0.3, 0.77), guide="none")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(size =6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  xlab("")
+
+netEffectsX <- netEffects2
+netEffectsX$CorrectedEffectPlot[netEffectsX$cohort == "ALSPAC"] <- c("+27%", "-73%","-22%","-71%",
+                                                                     "+10%","+30%","-13%")
+
+b<- ggplot(master5[-c(which(master5$Adversity2 %in% c("nbhqual","abuse")),
+                  grep(" - ", master5$cohort)),], 
+       aes(x = cohort, y = Prop..Mediated*100, fill=Direction))+
+  geom_hline(yintercept = 0)+
+  geom_bar(stat ="identity", position="stack", col ="black", alpha=0.77, linewidth =0.3)+
+  theme_classic()+
+  facet_grid(~AdversityNames, scales = "free", space="free")+
+  scale_fill_manual(values = c("#ea4040","#0088c5"),"DNAm effect on\ndepressive symptoms")+
+  theme(axis.text.x = element_text(angle=45, hjust=1, color ="black",size=10),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_text(size=12),
+        panel.border = element_rect(color="black", fill=NA, size=.77))+
+  ylab("Indirect (mediated) effect")+
+  xlab("")+
+  geom_text(data=netEffectsX[-c(which(netEffectsX$Adversity2 %in% c("nbhqual","abuse")),
+                                grep(" - ", netEffectsX$cohort)),],
+            aes(y=250, label=CorrectedEffectPlot, x = cohort), inherit.aes = F)+
+  geom_text(data = legendText, aes(y= 369, label = gsub("corrected ", "corrected\n", text), x = 0.5), 
+            inherit.aes = F, hjust=0, size=3.3)
+
+b+
+  theme(legend.position = "right")+
+  labs(tag = "A")
+  
+
+gridExtra::grid.arrange(b+theme(legend.position = "none",
+                                plot.tag = element_text(face = "bold", size=18))+
+                          labs(tag = "A"),
+                        a+theme(legend.position = "none",
+                                plot.tag = element_text(face = "bold", size=18))+
+                          labs(tag = "B"), ncol=1)
+g<- gridExtra::arrangeGrob(b+theme(legend.position = "none",
+                                   plot.tag = element_text(face = "bold", size=18,hjust=1))+
+                             labs(tag = "A"),
+                           a+theme(legend.position = "none",
+                                   plot.tag = element_text(face = "bold", size=18))+
+                             labs(tag = "B"), 
+                           ncol=1)
+
+ggsave(g, file = "Figures/Figure3_2024-08-27B.eps", 
+       dpi = 300, width=10, height=8, device=cairo_ps)
+
+
+library(ggpubr)
+g2 <- ggarrange(b+theme(plot.tag = element_text(face = "bold", size=18,hjust=1))+
+                  labs(tag = "A"),
+                a+theme(plot.tag = element_text(face = "bold", size=18))+
+                  labs(tag = "B"), common.legend = TRUE, ncol=1, legend = "right")
+ggsave(g2, file = "Figures/Figure3_2024-08-27C.eps", 
+       dpi = 300, width=11, height=9, device=cairo_ps)
+
+write.csv(master5[,!colnames(master5) %in% c("AdversityNames")], 
+          file = "Mediation_figure3_data_2024-08-27.csv", quote=F, row.names = F)
+
+plot(cowplot::get_legend(a))
+
+#table(rowSums(master5[,15:18]=="Consistent", na.rm = T)/rowSums(!is.na(master5[,15:18])))
+table(master5$consistentFFCWS[master5$cohort=="FFCWS"], master5$Direction[master5$cohort=="FFCWS"])
+pbinom(25, 45, 0.5, lower.tail = F) #p =0.18 for FFCWS
+pbinom(15, 25, 0.5, lower.tail = F) #p =0.11 for FFCWS protective
+pbinom(9, 20, 0.5, lower.tail = F) #p =0.59 for FFCWS risk
+
+table(master5$consistentGenR[master5$cohort=="GenR"], master5$Direction[master5$cohort=="GenR"])
+pbinom(23, 38, 0.5, lower.tail = F) #p =0.072 for GenR
+pbinom(12, 18, 0.5, lower.tail = F) #p =0.048 for GenR protective
+pbinom(11, 20, 0.5, lower.tail = F) #p =0.25 for GenR risk
+
+
+temp <- master5[master5$cohort=="ALSPAC",]
+
+temp <- temp[-c(which(is.na(temp$consistentFFCWS)), which(is.na(temp$consistentGenR))),]
+temp <- temp[-c(which(temp$consistentFFCWS =="Missing"), which(temp$consistentGenR =="Missing")),]
+temp$consistent <- ifelse(temp$consistentFFCWS == "Consistent"& temp$consistentGenR == "Consistent",
+                          "Consistent","Discordant")
+table(temp$consistent) #35 CpGs
+pbinom(16, 35, 0.5*0.5, lower.tail = F) #p=0.0022
+table(temp$consistent, temp$Direction)
+pbinom(10, 17, 0.5*0.5, lower.tail = F) # p =0.00063 for protective
+pbinom(6, 18, 0.5*0.5, lower.tail = F) # p =0.14 for risk
+
+sum(table(temp$Adversity2))
+tail(temp)
+
+
+### protective effects are more consistently replicated across cohorts ###
+nrow(master5[master5$cohort=="GenR",])
+table(master5$Adversity2[master5$cohort=="GenR"])
+nrow(master5[master5$cohort=="FFCWS",])
+table(master5$Adversity2[master5$cohort=="FFCWS"])
+head(temp)
+
+
+med.data[med.data$CpG %in% c("cg09191574", "cg21079003", "cg03269218", "cg12343929",
+                             "cg19642007", "cg21665774", "cg16292933", "cg00300275", "cg269299079"),
+         c(1,3,10,21)]
+
+```
+
+
+
+#enrichment of protective in alspac#
+```{r}
+pbinom(70-39, 70, 0.5) #p=0.20 for more protective than risk in alspac
+
+temp <- table(master$Direction[master$cohort=="ALSPAC"],master$Adversity2[master$cohort=="ALSPAC"])
+
+for(i in 1:ncol(temp)){
+  cat(colnames(temp)[i],":  ")
+  cat(pbinom(sum(temp[,i]) - temp[2,i], sum(temp[,i]), 0.5), "\n")
+}
+#abuse p = 0.0156
+#mompsych p = 0.0898
+#rest are nowhere close
+
+head(temp)
+
+pbinom(sum(temp[,1:4]) - sum(temp[2,1:4]), sum(temp[,1:4]), 0.5) #very early p = 0.155
+pbinom(sum(temp[,5:7]) - sum(temp[2,5:7]), sum(temp[,5:7]), 0.5) #early p = 0.368
+
+chisq.test(t(data.frame(v_early = c(sum(temp[1,1:4]), sum(temp[2,1:4])),
+                      early = c(sum(temp[1,5:7]), sum(temp[2,5:7])))))
+
+```
+
+*Brain-blood correlations*
+```{r}
+brainBlood <- data.table::fread("450K_annotations/ImageCpG/Illumina_450K_covar")
+alspac <- master4[master4$cohort=="ALSPAC",]
+
+brainBloodMed <- brainBlood[match(alspac$CpG,brainBlood$cgid), ]
+mean(brainBloodMed$rho.br.b, na.rm=T)
+
+sum(brainBloodMed$rho.br.b >0.8, na.rm=T)
+
+brainBloodMedCor <- rbind(data.frame(alspac, 
+                                         BB.rho = brainBloodMed$rho.br.b,
+                                         BB.pval = brainBloodMed$p.rho.br.b,
+                                         BB.analysis = "Brain-Blood"),
+                              data.frame(alspac, 
+                                         BB.rho = brainBloodMed$rho.br.s,
+                                         BB.pval = brainBloodMed$p.rho.br.s,
+                                         BB.analysis = "Brain-Saliva"),
+                              data.frame(alspac, 
+                                         BB.rho = brainBloodMed$rho.bl.s,
+                                         BB.pval = brainBloodMed$p.rho.bl.s,
+                                         BB.analysis = "Blood-Saliva"))
+
+
+adv.labels <- c("Family instability",
+                "Financial stress",
+                "Mom psychopathology",
+                "One adult household",
+                "Parental cruelty")
+
+ggplot(brainBloodMedCor, aes(x = AdversityNames, y= BB.rho, fill=BB.analysis))+
+  #geom_jitter(aes(col = BB.analysis, group = BB.analysis))
+  #geom_violin(na.rm = T, width= 1, alpha =0.7)+
+  geom_boxplot(na.rm = T, width= 0.5, alpha =0.7, position='dodge')+
+  #geom_dotplot(binaxis = "y", stackdir = "center", dotsize = 0.5, position = "dodge")+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, "Tissues")+
+  geom_hline(yintercept = 0, linetype =2)+
+  xlab("Adversity")+
+  ylab("Correlation coefficient (rho)")+
+  theme(panel.grid.major.y = element_line(linetype=3),
+        axis.text.x = element_text(size =12, angle=45, hjust=1),
+        axis.text.y = element_text(size =10),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=12))
+
+
+ggplot(brainBloodMedCor, aes(x =Direction, y= BB.rho, fill = BB.analysis))+
+  geom_boxplot(na.rm = T, width= 0.5, alpha =0.7, position='dodge')+
+  geom_hline(yintercept = 0)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+  
+
+
+summaryDirection <- master4 %>% select(CpG, Adversity2, AdversityNames, cohort, Direction) %>%
+  pivot_wider(names_from = cohort, values_from = Direction)
+colnames(summaryDirection)[4:8]
+summaryDirection$ConsistentFFCWS <- ifelse(summaryDirection$FFCWS == summaryDirection$ALSPAC,"Yes","No")
+summaryDirection$ConsistentGenR <- ifelse(summaryDirection$GenR == summaryDirection$ALSPAC,"Yes","No")
+
+
+directionBBcor <- rbind(data.frame(summaryDirection[1:3],
+                                   ALSPAC_direction = summaryDirection$ALSPAC,
+                                   Consistent = ifelse(summaryDirection$ConsistentFFCWS =="Yes",
+                                                       "FFCWS-consistent",NA)),
+                        data.frame(summaryDirection[1:3],
+                                   ALSPAC_direction = summaryDirection$ALSPAC,
+                                   Consistent = ifelse(summaryDirection$ConsistentGenR =="Yes",
+                                                       "GenR-consistent",NA)),
+                        data.frame(summaryDirection[1:3],
+                                   ALSPAC_direction = summaryDirection$ALSPAC,
+                                   Consistent = ifelse(summaryDirection$ConsistentFFCWS =="Yes" & 
+                                                         summaryDirection$ConsistentGenR =="Yes",
+                                                       "All",NA)),
+                        data.frame(summaryDirection[1:3],
+                                   ALSPAC_direction = summaryDirection$ALSPAC,
+                                   Consistent = ifelse(summaryDirection$ConsistentFFCWS %in% c("No",NA) & 
+                                                         summaryDirection$ConsistentGenR %in% c("No",NA),
+                                                       "ALSPAC-only",NA)))
+directionBBcor <- directionBBcor[!is.na(directionBBcor$Consistent),]
+
+brainBloodMed2 <- brainBlood[match(directionBBcor$CpG, brainBlood$cgid), ]
+summaryDirection[summaryDirection$ConsistentFFCWS %in% c("No",NA) & 
+                                                         summaryDirection$ConsistentGenR %in% c("No",NA),]
+
+directionBBcor2 <- rbind(data.frame(directionBBcor, 
+                                    BB.rho = brainBloodMed2$rho.br.b,
+                                    BB.pval = brainBloodMed2$p.rho.br.b,
+                                    BB.analysis = "Brain-Blood"),
+                         data.frame(directionBBcor, 
+                                    BB.rho = brainBloodMed2$rho.br.s,
+                                    BB.pval = brainBloodMed2$p.rho.br.s,
+                                    BB.analysis = "Brain-Saliva"),
+                         data.frame(directionBBcor, 
+                                    BB.rho = brainBloodMed2$rho.bl.s,
+                                    BB.pval = brainBloodMed2$p.rho.bl.s,
+                                    BB.analysis = "Blood-Saliva"))
+
+directionBBcor2$Consistent <- factor(directionBBcor2$Consistent, 
+                                     levels=c("All","ALSPAC-only","FFCWS-consistent","GenR-consistent"))
+
+ggplot(directionBBcor2, aes(x= AdversityNames, y= BB.rho, fill = BB.analysis))+
+  geom_boxplot(na.rm = T, width= 0.5, alpha =0.7, position='dodge')+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, "Tissues")+
+  geom_hline(yintercept = 0, linetype =2)+
+  facet_wrap(~Consistent, scales= "free_x")+
+  xlab("Adversity")+
+  ylab("Correlation coefficient (rho)")+
+  theme(panel.grid.major.y = element_line(linetype=3),
+        axis.text.x = element_text(size =12, angle=45, hjust=1),
+        axis.text.y = element_text(size =10),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=12))
+
+ggplot(directionBBcor2, aes(x= Consistent, y= BB.rho, fill = BB.analysis))+
+  geom_boxplot(na.rm = T, width= 0.5, alpha =0.7, position='dodge')+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, "Tissues")+
+  geom_hline(yintercept = 0, linetype =2)+
+  xlab("Consistent direction of mediated effect on depression")+
+  ylab("Correlation coefficient (rho)")+
+  theme(panel.grid.major.y = element_line(linetype=3),
+        axis.text.x = element_text(size =12, angle=45, hjust=1),
+        axis.text.y = element_text(size =10),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=12))+
+  ylim(-1,1)
+#no real differences 
+
+
+#"Replicated" CpGs
+
+ggplot(directionBBcor2[directionBBcor2$CpG %in% c("cg09191574", "cg00901198", "cg12343929",
+                                                  "cg06451157", "cg06451157",
+                                                  "cg24622544", "cg01973483", "cg03965496"),], 
+       aes(x= ifelse(Consistent == "FFCWS-consistent","FFCWS","GenR"), y= BB.rho, fill = BB.analysis))+
+  geom_boxplot(na.rm = T, width= 0.5, alpha =0.7, position='dodge')+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, "Tissues")+
+  geom_hline(yintercept = 0, linetype =2)+
+  xlab("Replicated cohort")+
+  ylab("Correlation coefficient (rho)")+
+  theme(panel.grid.major.y = element_line(linetype=3),
+        axis.text.x = element_text(size =12),
+        axis.text.y = element_text(size =10),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size =12),
+        strip.text = element_text(size=12))+
+  ylim(-1,1)
+
+
+```
+
+
+*Redoing FFCCWS figures with effect-corrected direction*
+```{r}
+ffcws <- master4[master4$cohort=="FFCWS",]
+head(ffcws)
+alspac <- master4[master4$cohort=="ALSPAC",]
+alspac <- alspac[match(ffcws$CpG, alspac$CpG),]
+ALFF <- rbind(data.frame(CpG = ffcws$CpG,
+                         Adversity = ffcws$AdversityNames,
+                         FFCWS = ffcws$Prop..Mediated,
+                         ALSPAC = alspac$Prop..Mediated, 
+                         Type = "Raw"),
+              data.frame(CpG = ffcws$CpG,
+                         Adversity = ffcws$AdversityNames,
+                         FFCWS = ffcws$Prop..Mediated*sign(ffcws$Total.Effect),
+                         ALSPAC = alspac$Prop..Mediated * sign(alspac$Total.Effect), 
+                         Type = "Adjusted"))
+ALFF$Consistent <- ifelse(sign(ALFF$FFCWS) == sign(ALFF$ALSPAC),"Consistent","Inconsistent")
+
+
+ggplot(ALFF, aes(x= ALSPAC*100, y = FFCWS*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("FFCWS - Percent mediated")+
+  facet_wrap(~Type)+
+  theme_bw()+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect")+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "One adult household",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_y_continuous(breaks = seq(-25, 100, 25), limits = c(-85,85))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALFF[abs(ALFF$FFCWS*100)>10.1 & ALFF$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(0.5,1.6,1.6,-1,-1,1.6,-1.2), 
+            hjust= c(-0.1,0,0,0,0,0,1),
+            col = "black")
+
+data.frame(med.data[med.data$CpG %in% 
+                      ALFF$CpG[abs(ALFF$FFCWS*100)>10.1 & ALFF$Consistent=="Consistent"],])
+interest <- ALFF[abs(ALFF$FFCWS*100)>10.1 & ALFF$Consistent=="Consistent",]
+
+# ALFF[abs(ALFF$FFCWS*100)>10.1 & ALFF$Consistent=="Consistent",]$CpG %in% sig$exposure #no overlap with MR
+
+
+forestFFCWS <- rbind(data.frame(CpG = ffcws$CpG, 
+                                Adversity = ffcws$AdversityNames, 
+                                Total = ffcws$Total.Effect,
+                                Estimate = ffcws$Prop..Mediated*100, 
+                                CI.Lower = ffcws$CI.lower*100, 
+                                CI.Upper = ffcws$CI.upper*100,
+                                Dataset = "FFCWS"),
+                     data.frame(CpG = alspac$CpG, 
+                                Adversity = alspac$AdversityNames,
+                                Total = alspac$Total.Effect,
+                                Estimate = alspac$Prop..Mediated*100, 
+                                CI.Lower = alspac$CI.lower*100, 
+                                CI.Upper = alspac$CI.upper*100,
+                                Dataset = "ALSPAC"))
+forestFFCWS2 <- forestFFCWS
+forestFFCWS2$Estimate <- forestFFCWS2$Estimate * sign(forestFFCWS2$Total)
+forestFFCWS2$CI.Lower <- forestFFCWS2$CI.Lower * sign(forestFFCWS2$Total)
+forestFFCWS2$CI.Upper <- forestFFCWS2$CI.Upper * sign(forestFFCWS2$Total)
+forestFFCWS <- rbind(data.frame(forestFFCWS, type = "Raw"),
+                     data.frame(forestFFCWS2, type = "Adjusted"))
+forestFFCWS
+forestFFCWS2 <- forestFFCWS[paste(forestFFCWS$CpG, forestFFCWS$type) %in% 
+                              paste(interest$CpG, interest$Type),]
+forestFFCWS2
+
+forestFFCWS2$Dataset <- factor(forestFFCWS2$Dataset, levels =c("ALSPAC","FFCWS"))
+ggplot(forestFFCWS2,
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+                                  "One adult household"),
+                       values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  facet_wrap(~type, scales= "free")+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+
+#Proper figure
+ALFF.raw <- ALFF[ALFF$Type=="Raw",]
+ALFF.adj <- ALFF[ALFF$Type=="Adjusted",]
+
+table(ALFF.raw$Consistent)
+a <- ggplot(ALFF.raw, aes(x= ALSPAC*100, y = FFCWS*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("FFCWS - Percent mediated")+
+  #facet_wrap(~Type, nrow = 2)+
+  theme_bw()+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect",
+                      labels = c("Consistent (22)","Inconsistent (23)"))+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "One adult household",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_y_continuous(breaks = seq(-25, 100, 25), limits = c(-85,85))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALFF.raw[abs(ALFF.raw$FFCWS*100)>10.1 & ALFF.raw$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(0.5,1.6,1.6), 
+            hjust= c(-0.1,0,0),
+            col = "black")
+
+table(ALFF.adj$Consistent)
+b <- ggplot(ALFF.adj, aes(x= ALSPAC*100, y = FFCWS*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("FFCWS - Percent mediated")+
+  #facet_wrap(~Type, nrow = 2)+
+  theme_bw()+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect",
+                      labels = c("Consistent (23)","Inconsistent (22)"))+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "One adult household",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_y_continuous(breaks = seq(-25, 100, 25), limits = c(-85,85))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALFF.adj[abs(ALFF.adj$FFCWS*100)>10.1 & ALFF.adj$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(-1,-1,1.6,-1.2), 
+            hjust= c(0,0,0,1),
+            col = "black")
+
+c<- ggplot(forestFFCWS2[forestFFCWS2$type=="Raw",],
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+                                  "One adult household"),
+                       values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+d<- ggplot(forestFFCWS2[forestFFCWS2$type=="Adjusted",],
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+                                  "One adult household"),
+                       values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+library(gridExtra)
+library(cowplot)
+
+
+grid.arrange(a+theme(legend.position="none"),
+             c+theme(legend.position="none"), 
+             cowplot::get_legend(a), nrow=1)
+
+grid.arrange(b+theme(legend.position="none"),
+             d+theme(legend.position="none"), 
+             cowplot::get_legend(b), nrow=1)
+
+plot(cowplot::get_legend(c))
+
+```
+
+*Generation R*
+```{r}
+genr <- master4[master4$cohort=="GenR",]
+head(genr)
+alspac <- master4[master4$cohort=="ALSPAC",]
+alspac <- alspac[match(genr$CpG, alspac$CpG),]
+ALGE <- rbind(data.frame(CpG = genr$CpG,
+                         Adversity = genr$AdversityNames,
+                         GenR = genr$Prop..Mediated,
+                         ALSPAC = alspac$Prop..Mediated, 
+                         Type = "Raw"),
+              data.frame(CpG = genr$CpG,
+                         Adversity = genr$AdversityNames,
+                         GenR = genr$Prop..Mediated*sign(genr$Total.Effect),
+                         ALSPAC = alspac$Prop..Mediated * sign(alspac$Total.Effect), 
+                         Type = "Adjusted"))
+ALGE$Consistent <- ifelse(sign(ALGE$GenR) == sign(ALGE$ALSPAC),"Consistent","Inconsistent")
+
+
+ggplot(ALGE, aes(x= ALSPAC*100, y = GenR*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  facet_wrap(~Type)+
+  theme_bw()+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect")+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_y_continuous(breaks = seq(-500, 500, 25))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALGE[abs(ALGE$GenR*100)>10.1 & ALGE$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(1.6,1.6,1.6,-1.6,1.6,1.6,1.6,-1.2), 
+            hjust= c(0,0,0,0,0,0,0,0),
+            col = "black")
+
+
+interestGE <- ALGE[abs(ALGE$GenR*100)>10.1 & ALGE$Consistent=="Consistent",]
+
+# ALFF[abs(ALFF$FFCWS*100)>10.1 & ALFF$Consistent=="Consistent",]$CpG %in% sig$exposure #no overlap with MR
+
+
+forestGenR <- rbind(data.frame(CpG = genr$CpG, 
+                                Adversity = genr$AdversityNames, 
+                                Total = genr$Total.Effect,
+                                Estimate = genr$Prop..Mediated*100, 
+                                CI.Lower = genr$CI.lower*100, 
+                                CI.Upper = genr$CI.upper*100,
+                                Dataset = "GenR"),
+                     data.frame(CpG = alspac$CpG, 
+                                Adversity = alspac$AdversityNames,
+                                Total = alspac$Total.Effect,
+                                Estimate = alspac$Prop..Mediated*100, 
+                                CI.Lower = alspac$CI.lower*100, 
+                                CI.Upper = alspac$CI.upper*100,
+                                Dataset = "ALSPAC"))
+forestGenR2 <- forestGenR
+forestGenR2$Estimate <- forestGenR2$Estimate * sign(forestGenR2$Total)
+forestGenR2$CI.Lower <- forestGenR2$CI.Lower * sign(forestGenR2$Total)
+forestGenR2$CI.Upper <- forestGenR2$CI.Upper * sign(forestGenR2$Total)
+forestGenR <- rbind(data.frame(forestGenR, type = "Raw"),
+                     data.frame(forestGenR2, type = "Adjusted"))
+forestGenR
+forestGenR2 <- forestGenR[paste(forestGenR$CpG, forestGenR$type) %in% 
+                              paste(interestGE$CpG, interestGE$Type),]
+forestGenR2
+
+forestGenR2$Dataset <- factor(forestGenR2$Dataset, levels =c("ALSPAC","GenR"))
+
+ggplot(forestGenR2,
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  # scale_shape_manual(labels = c("Caregiver physical/\nemotional abuse",
+  #                                 "One adult household"),
+  #                      values = c(16,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  facet_wrap(~type, scales= "free")+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+#Proper figure
+ALGE.raw <- ALGE[ALGE$Type=="Raw",]
+ALGE.adj <- ALGE[ALGE$Type=="Adjusted",]
+
+table(ALGE.raw$Consistent)
+a <- ggplot(ALGE.raw, aes(x= ALSPAC*100, y = GenR*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  #facet_wrap(~Type, nrow = 2)+
+  theme_bw()+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect",
+                      labels = c("Consistent (22)","Inconsistent (16)"))+
+  scale_y_continuous(breaks = seq(-200, 450, 50))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALGE.raw[abs(ALGE.raw$GenR*100)>10.1 & ALGE.raw$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(1.6,-1.2,1.6), 
+            hjust= c(0,0,0),
+            col = "black")
+
+table(ALGE.adj$Consistent)
+b <- ggplot(ALGE.adj, aes(x= ALSPAC*100, y = GenR*100, col = Consistent, shape =Adversity))+
+  geom_abline(linetype=3)+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(size=2.5)+
+  xlab("ALSPAC - Percent mediated")+
+  ylab("GenR - Percent mediated")+
+  #facet_wrap(~Type, nrow = 2)+
+  theme_bw()+
+  scale_shape_discrete(labels = c("Caregiver physical/\nemotional abuse",
+                                  "Maternal psychopathology",
+                                  "Family instability",
+                                  "Financial hardship"))+
+  scale_color_viridis(discrete=T, end =0.77, "Direction of effect",
+                      labels = c("Consistent (24)","Inconsistent (14)"))+
+  scale_y_continuous(breaks = seq(-450, 200, 50))+
+  theme(axis.text = element_text(size =12),
+        axis.title = element_text(size =14),
+        legend.text = element_text(size =10),
+        legend.title = element_text(size = 12),
+        strip.text = element_text(size =12))+
+  geom_text(data = ALGE.adj[abs(ALGE.adj$GenR*100)>10.1 & ALGE.adj$Consistent=="Consistent",],
+            aes(label = CpG), 
+            vjust= c(-1.6,1.6,1.6,1.6,-1.2), 
+            hjust= c(0,0,0,0,0),
+            col = "black")
+b
+
+c<- ggplot(forestGenR2[forestGenR2$type=="Raw",],
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Maternal psychopathology", "Family instability"),
+                       values = c(17,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+d<- ggplot(forestGenR2[forestGenR2$type=="Adjusted",],
+       aes(y = CpG, col = Dataset, group = Dataset))+
+  geom_point(aes(x = Estimate, shape = Adversity), position=position_dodge(w = 0.3), size = 2.5)+
+  geom_errorbar(aes (xmin = CI.Lower, xmax = CI.Upper), position=position_dodge(w = 0.3), width = 0.2)+
+  scale_shape_manual(labels = c("Maternal psychopathology", "Family instability"),
+                       values = c(17,15))+
+  geom_vline(xintercept = 0, linetype=3)+
+  scale_color_viridis(discrete=T, begin = 0.3, end=0.7)+
+  theme_bw()+
+  xlab("Percent mediated")+
+  ylab("")+
+  theme(axis.text =  element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=10),
+        legend.title = element_text(size =12), 
+        strip.text = element_text(size=12))
+
+grid.arrange(a+theme(legend.position="none"),
+             c+theme(legend.position="none"), 
+             cowplot::get_legend(a), nrow=1)
+
+grid.arrange(b+theme(legend.position="none"),
+             d+theme(legend.position="none"), 
+             cowplot::get_legend(b), nrow=1)
+
+plot(cowplot::get_legend(c))
+```
+
+*GenR aces* 
+```{r}
+
+
+
+```
+
+

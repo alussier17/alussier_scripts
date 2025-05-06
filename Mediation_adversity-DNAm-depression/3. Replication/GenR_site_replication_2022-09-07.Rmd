@@ -1,0 +1,209 @@
+---
+title: "GenR_mediation_sites_2022-05-16"
+output: html_document
+author: Alexandre Lussier
+Date: May 16, 2022
+---
+
+```{r setup, include=FALSE}
+library(mediation)
+setwd("~/Dropbox (Partners HealthCare)/Dunn_shared/MGH-GenR-mediation/Dummy_data_2021-11-04/")
+```
+
+*Function to extract mediation summary data*
+```{r extract_mediation_summary}
+extract_mediation_summary <- function (x) { 
+
+  clp <- 100 * x$conf.level
+  isLinear.y <- ((class(x$model.y)[1] %in% c("lm", "rq")) || 
+                   (inherits(x$model.y, "glm") && x$model.y$family$family == 
+                      "gaussian" && x$model.y$family$link == "identity") || 
+                   (inherits(x$model.y, "survreg") && x$model.y$dist == 
+                      "gaussian"))
+
+  printone <- !x$INT && isLinear.y
+
+  if (printone) {
+
+    smat <- c(x$d1, x$d1.ci, x$d1.p)
+    smat <- rbind(smat, c(x$z0, x$z0.ci, x$z0.p))
+    smat <- rbind(smat, c(x$tau.coef, x$tau.ci, x$tau.p))
+    smat <- rbind(smat, c(x$n0, x$n0.ci, x$n0.p))
+
+    rownames(smat) <- c("ACME", "ADE", "Total Effect", "Prop. Mediated")
+
+  } else {
+    smat <- c(x$d0, x$d0.ci, x$d0.p)
+    smat <- rbind(smat, c(x$d1, x$d1.ci, x$d1.p))
+    smat <- rbind(smat, c(x$z0, x$z0.ci, x$z0.p))
+    smat <- rbind(smat, c(x$z1, x$z1.ci, x$z1.p))
+    smat <- rbind(smat, c(x$tau.coef, x$tau.ci, x$tau.p))
+    smat <- rbind(smat, c(x$n0, x$n0.ci, x$n0.p))
+    smat <- rbind(smat, c(x$n1, x$n1.ci, x$n1.p))
+    smat <- rbind(smat, c(x$d.avg, x$d.avg.ci, x$d.avg.p))
+    smat <- rbind(smat, c(x$z.avg, x$z.avg.ci, x$z.avg.p))
+    smat <- rbind(smat, c(x$n.avg, x$n.avg.ci, x$n.avg.p))
+
+    rownames(smat) <- c("ACME (control)", "ACME (treated)", 
+                        "ADE (control)", "ADE (treated)", "Total Effect", 
+                        "Prop. Mediated (control)", "Prop. Mediated (treated)", 
+                        "ACME (average)", "ADE (average)", "Prop. Mediated (average)")
+
+  }
+
+  colnames(smat) <- c("Estimate", paste(clp, "% CI Lower", sep = ""), 
+                      paste(clp, "% CI Upper", sep = ""), "p-value")
+  smat
+
+}
+```
+
+*Loading mediation sites from ALSPAC*
+```{r alspac sites}
+alspac <- gdata::read.xls("data/Examples/Mediation_sites_all_2021-06-04.xls", sheet=1)
+head(alspac)
+dim(alspac)
+alspacLoci <- unique(as.character(alspac$CpG))
+alspacLoci <- alspacLoci[!alspacLoci ==""]
+length(alspacLoci) #67 loci
+rm(alspac)
+```
+
+
+*Loading dummy coded data*
+```{r data processing}
+load("data/GENR-EWAS_Med_ACE_dummydata_20211104.rdata", verbose=T)
+head(med.sample.data)
+head(med.DNAm.data)
+identical(med.sample.data$ID, med.DNAm.data$ID)
+rownames(med.DNAm.data) <- med.DNAm.data$ID #making rownames IDs
+med.DNAm.data <- med.DNAm.data[,-1] #removing ID column
+
+## renaming DNAm columns so I can test it - don't run this in main script
+#colnames(med.DNAm.data)[1:length(alspacLoci)] <- as.character(alspacLoci) 
+
+#subsetting down to loci of interest
+med.DNAm.data <- med.DNAm.data[,colnames(med.DNAm.data) %in% alspacLoci]
+head(med.DNAm.data)
+
+#correcting for cell type proportions and batch effects
+med.DNAm.data.cor <- do.call(cbind, lapply(1:ncol(med.DNAm.data), function(i){
+  print(i)
+  a <- lm(med.DNAm.data[,i] ~ Bcell+ CD4T+ CD8T+ Gran+ Mono+ NK+batch, data=med.sample.data)
+  resid(a) + mean(med.DNAm.data[,i])
+}))
+head(med.DNAm.data.cor)
+rownames(med.DNAm.data.cor) <- rownames(med.DNAm.data)
+colnames(med.DNAm.data.cor) <- colnames(med.DNAm.data)
+rm(med.DNAm.data)
+
+#any betas above 1 or below 0 need to be recoded
+sum(med.DNAm.data.cor<0) #4 
+sum(med.DNAm.data.cor>1) #5
+for(i in 1:ncol(med.DNAm.data.cor)){
+  temp <- med.DNAm.data.cor[,i]
+  temp <- ifelse(temp<0, 0+ (min(temp[temp>0])/2),
+                 ifelse(temp>1, (1 - ((1-max(temp[temp<1]))/2)), temp))
+  med.DNAm.data.cor[,i] <- temp
+  rm(temp,i)
+  }
+
+#transform to m-values for analysis
+# med.DNAm.data.cor <- lumi::beta2m(med.DNAm.data.cor)
+
+```
+
+*Function to run mediation analyses*
+```{r runMediation function}
+#dnam has rownames as ID and colnames as cpg name; these should be the celltype adjusted m-value
+#pheno has an ID column, depression, and exposure columns, as well as covariates
+#exposure is the name of the exposure column
+#pheno = med.sample.data
+#dnam = med.DNAm.data.cor
+#colnames(adj.m)[1:length(alspacLoci)] <- as.character(alspacLoci) ## renaming columns so I can test it 
+#exposure="ace.tot9"
+#loci = alspacLoci[1:2]
+#covars = Sex+Previous.pregnancies+Maternal.education+Maternal.age+
+                          #Birthweight.grams+Smoked.pregnancy
+
+runMediation <- function(pheno, dnam, exposure, loci){
+  #error messages
+  if(exists("pheno") == F){
+    stop("pheno not found 
+         Please include phenotype file with ID, exposure, depression, and following covariates:
+         Sex; Previous.pregnancies; Maternal.education; Maternal.age; Birthweight.grams; Smoked.pregnancy")}
+  if(sum(colnames(pheno) %in% c("ID", exposure, "depression","Sex", 
+                                  "Previous.pregnancies", "Maternal.education", "Maternal.age", 
+                                  "Birthweight.grams", "Smoked.pregnancy")) != 9){
+    stop("Missing variables in phenotype file, please include: 
+         ID, exposure (defined in function), depression, Sex; Previous.pregnancies; Maternal.education;
+         Maternal.age; Birthweight.grams; Smoked.pregnancy")
+                                  }
+  if(exists("dnam") == F){
+    stop("dnam not found 
+         Please include cell-type corrected DNAm file with ID as rownames and CpG ID as column names")}
+  if(exists("exposure") == F){
+    stop("exposure not defined - please include which of the exposures will be analysed: 
+         ace.tot9, psyviol9, sexviol9")}
+  # else{
+  #   if(exposure %in% c("ace.tot9", "psyviol9","sexviol9") ==F){
+  #     stop("incorrect exposure name
+  #     please include one of the following exposures: ace.tot9, psyviol9, sexviol9")}}
+  if(exists("loci")==F){
+    stop("Please load vector of loci to be analyzed")}
+  
+  print("Formatting data")
+  dnam <- dnam[match(pheno$ID, rownames(dnam)),]
+  dnam <- dnam[, colnames(dnam) %in% unique(loci)]
+
+  print(paste0("Beginning mediation analyses of ", exposure))
+  mediationRes <- lapply(1:length(loci), function(x){
+    #tracking progress
+    if(x %% 5 == 0 | x ==1){print(paste0("Mediation #", x," of ", length(loci)))}
+    #formatting data
+    
+    full <- data.frame(ID = pheno$ID, 
+                       depression = pheno$depression, 
+                       exposure = pheno[, colnames(pheno)==exposure ],
+                       cpg = dnam[,colnames(dnam) == loci[x]],
+                       pheno[,c("Sex", "Previous.pregnancies", "Maternal.education", "Maternal.age", 
+                                  "Birthweight.grams", "Smoked.pregnancy")]
+                       )
+    #beginning mediation
+    mediator <- lm(cpg ~ exposure + Sex + Previous.pregnancies + Maternal.education + 
+                     Maternal.age + Birthweight.grams + Smoked.pregnancy, data = full)
+    dv <- lm(depression ~ exposure + cpg  +Sex + Previous.pregnancies + Maternal.education + 
+               Maternal.age + Birthweight.grams + Smoked.pregnancy, data = full)
+    set.seed(22) #so it is reproducible
+    results = suppressMessages(mediate(mediator, dv, treat='exposure', mediator='cpg', boot=T))
+    
+    #obtaining mediation results
+    temp <- extract_mediation_summary(results)
+    temp <- data.frame(CpG = alspacLoci[x],
+                       Adversity = exposure, 
+                       Mediation = rownames(temp),
+                       temp
+                       )
+  })
+  mediationRes <- do.call(rbind, mediationRes)
+  rownames(mediationRes) <- 1:nrow(mediationRes)
+  print("Analysis complete - returning results")
+  colnames(mediationRes) <- gsub("X95..", "", colnames(mediationRes))
+  return(mediationRes)
+}
+
+```
+
+*Run mediation and save file*
+```{r site-specific mediation}
+acetot.med <- runMediation(med.sample.data, med.DNAm.data.cor, exposure = "ace.tot9", loci = alspacLoci[1:2])
+psy.med <- runMediation(med.sample.data, med.DNAm.data.cor, exposure = "psyviol9", loci = alspacLoci[1:2])
+sv.med <- runMediation(med.sample.data, med.DNAm.data.cor, exposure = "sexviol9", loci = alspacLoci[1:2])
+
+allMediation <- rbind(acetot.med, psy.med, sv.med)
+dim(allMediation) #804; 7 
+save(allMediation, file = paste0("GenR_site_replication_", Sys.Date(), ".Rdata"))
+
+
+```
+

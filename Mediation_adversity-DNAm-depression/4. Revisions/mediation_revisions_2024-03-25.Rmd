@@ -1,0 +1,436 @@
+---
+title: "Untitled"
+output: html_document
+date: '2023-12-12'
+---
+
+```{r setup}
+library(ggplot2)
+library(viridis)
+
+
+alspac <- readxl::read_excel("Mediation_sites_all_2021-06-04.xls")
+head(alspac)
+alspac <- alspac[-71,]
+setwd("")
+
+```
+
+*Re-annotation - now includes UCSC from illumina as well as the Price closest TSS*
+```{r}
+
+price.annot <- read.table("price_annotation_450k.txt", 
+                          header=T, sep='\t')
+load("featureData.Rdata",
+     verbose=T)
+
+price <- price.annot[match(alspac$CpG, price.annot$ID),]
+price$Closest_TSS_gene_name
+feature <- featureData[match(alspac$CpG, featureData$TargetID),]
+feature$UCSC_REFGENE_NAME
+
+alspac$`Nearest gene` <- price$Closest_TSS_gene_name
+alspac$UCSC <- feature$UCSC_REFGENE_NAME
+alspac$UCSC <- limma::strsplit2(alspac$UCSC, ";")[,1]
+alspac$location <- feature$UCSC_REFGENE_GROUP
+alspac$location <- ifelse(limma::strsplit2(alspac$location, ";")[,1] != limma::strsplit2(alspac$location, ";")[,2] &
+                            limma::strsplit2(alspac$location, ";")[,2] != "",
+                          paste(limma::strsplit2(alspac$location, ";")[,1], 
+                                limma::strsplit2(alspac$location, ";")[,2], sep ="; "),
+                          limma::strsplit2(alspac$location, ";")[,1])
+alspac$location[alspac$location ==""] <- "Intergenic"
+
+print(alspac[order(alspac$Adversity),c("CpG","Nearest gene","UCSC","location")], n=70)
+```
+
+*annotation of ever-exposed loci*
+```{r}
+everExp <- read.csv("ever-never_med.sites_p-values_2021-08-23.csv")
+head(everExp)
+
+price <- price.annot[match(everExp$CpG, price.annot$ID),]
+price$Closest_TSS_gene_name
+feature <- featureData[match(everExp$CpG, featureData$TargetID),]
+feature$UCSC_REFGENE_NAME
+
+everExp$`Nearest gene` <- price$Closest_TSS_gene_name
+everExp$UCSC <- feature$UCSC_REFGENE_NAME
+everExp$UCSC <- limma::strsplit2(everExp$UCSC, ";")[,1]
+everExp$location <- feature$UCSC_REFGENE_GROUP
+everExp$location <- ifelse(limma::strsplit2(everExp$location, ";")[,1] != limma::strsplit2(everExp$location, ";")[,2] &
+                            limma::strsplit2(everExp$location, ";")[,2] != "",
+                          paste(limma::strsplit2(everExp$location, ";")[,1], 
+                                limma::strsplit2(everExp$location, ";")[,2], sep ="; "),
+                          limma::strsplit2(everExp$location, ";")[,1])
+everExp$location[everExp$location ==""] <- "Intergenic"
+
+print(everExp[,c("CpG","Nearest gene","UCSC","location")], n=74)
+dim(everExp)
+
+rm(everExp, price, price.annot, feature, featureData)
+```
+
+
+*MDD GWAS overlap*
+```{r}
+mdd <- data.table::fread("MDD_GWAS_MONDO_0002009_associations_export.tsv")
+
+genes <- unique(c(limma::strsplit2(mdd$mappedGenes,",")))
+genes[toupper(genes) %in% toupper(alspac$`Nearest gene`)]
+genes[toupper(genes) %in% toupper(alspac$UCSC)] 
+#el zilcho
+
+
+
+```
+
+*epiDelta*
+```{r}
+ewas <- data.table::fread("ewascatalog-results.txt")
+ewastudies <- data.table::fread("ewascatalog-studies.txt")
+head(ewas)
+head(ewastudies)
+ageID <- ewastudies[ewastudies$Author == "Mulder RH" & ewastudies$Exposure=="age",]$StudyID
+ageRes <- ewas[ewas$StudyID %in% ageID,]
+dim(ageRes) #690552
+ageResSig <- ageRes[ageRes$P<1e-8,]
+dim(ageResSig) #421851
+length(unique(ageResSig$CpG)) #279349 of 473864= 58.95%
+ 
+medAge <- ageRes[ageRes$CpG %in% alspac$CpG,]
+dim(medAge) #114
+length(unique(medAge$CpG)) #60 CpGs - lmao
+head(medAge)
+sum(medAge$P<1e-8) #64
+medAgeSig <- medAge[medAge$P<1e-8,]
+length(unique(medAgeSig$CpG)) #42 of 67 CpGs
+table(medAgeSig$StudyID)
+head(medAgeSig)
+
+## permutation time ##
+load("variable.autosome.probes.list.Rdata", verbose=T)
+length(variable.autosome.probes) #278586
+
+ageResSig$StudyID <- factor(ageResSig$StudyID)
+for(i in 1:10000){
+  if(i == 1){agePerm <- data.frame(row.names = levels(ageResSig$StudyID))}
+  if(i %%100 ==0){print(i)}
+  set.seed(i)
+  cpgs <- sample(variable.autosome.probes, 67)
+  temp <- ageResSig[ageResSig$CpG %in% cpgs,]
+  t <- table(temp$StudyID)
+  agePerm <- cbind(agePerm,
+                   data.frame(t)[,2])
+  colnames(agePerm)[i] <- paste0("P",i)
+  
+  rm(cpgs, temp, t)
+}
+
+medAgeTable <- table(factor(medAgeSig$StudyID, levels = agePermSummary$Model))
+data.frame(medAgeTable)
+
+agePermSummary <- data.frame(Model = rownames(agePerm),
+                             Mean = rowMeans(agePerm/67),
+                             SD = apply(agePerm/67, 1, sd),
+                             Analysis = "Permutation",
+                             row.names = 1:6)
+agePermSummary$P.less <- rowSums(agePerm <= data.frame(medAgeTable)$Freq)/10000
+agePermSummary$P.more <- rowSums(agePerm >= data.frame(medAgeTable)$Freq)/10000
+agePermSummary$anyP <- ifelse(agePermSummary$P.less <0.05 | agePermSummary$P.more <0.05, "*","")
+
+medAgeSummary <- data.frame(Model = rownames(medAgeTable),
+                            Mean = data.frame(medAgeTable)$Freq/67,
+                            SD = 0,
+                            Analysis = "Mediation",
+                            row.names=1:6, 
+                            P.less = NA,
+                            P.more = NA,
+                            anyP = NA)
+agePermSummary <- rbind(agePermSummary,
+                        medAgeSummary)
+agePermSummary$upper <- agePermSummary$Mean + agePermSummary$SD 
+agePermSummary$lower <- agePermSummary$Mean - agePermSummary$SD 
+agePermSummary$lower[agePermSummary$lower<0] <- 0
+head(agePermSummary)
+
+agePermSummary$Model <- gsub("33450751_Mulder-RH_age_","", agePermSummary$Model)
+
+agePermSummary$Model2 <- c("Linear change from age 0-18 (fixed effect)",
+                           "Linear change from age 0-18 (random effect)",
+                           "Non-linear change at age 6 (fixed effect)",
+                           "Non-linear change at age 6 (random effect)",
+                           "Non-linear change at age 9 (fixed effect)",
+                           "Non-linear change at age 9 (random effect)")
+agePermSummary$Model2 <- factor(agePermSummary$Model2, levels =rev(unique(agePermSummary$Model2)))
+
+ggplot(agePermSummary, aes(y= Model2, x = Mean*67, fill = Analysis))+
+  geom_bar(stat="identity", alpha= 0.7, position=position_dodge(), width=0.88, col="black")+
+  geom_errorbar(aes(xmin = lower*67, xmax = upper*67), position=position_dodge(0.88), width =0.44)+
+  theme_classic()+
+  scale_fill_viridis(discrete=T, end=0.8, labels = c("Permutation (N=10,000)","Mediation"))+
+  geom_text(aes(label = anyP, x = Mean+6), size = 8, vjust=0.7)+
+  geom_text(data=agePermSummary[agePermSummary$Analysis=="Mediation",],
+            aes(label = Mean*67, x = ifelse(Mean*67 == 0, 2, Mean*67)), size = 5, vjust= -0.88, hjust=1.5)+
+  ylab("")+
+  #xlab("Proportion of CpGs")+
+  xlab("Number of CpGs")+
+  theme(axis.text = element_text(color="black", size =10),
+        axis.title = element_text(color="black", size =11),
+        legend.text = element_text(color="black", size =10),
+        legend.title = element_text(color="black", size =11))
+
+
+#agePermT <- t(agePerm)
+
+
+
+#probably wrong because I should be comparing to the probes used in the analysis
+# chisq.test(x = c(42/67, (67-42)/67),
+#            y = c(279349/473864,(473864-279349)/473864), simulate.p.value = T) #p=1; x2 = 2
+# chisq.test(c(42, 67-42),
+#            c(279349, 473864-279349), simulate.p.value = T)
+# 
+# chisq.test(table(ageResSig$StudyID), 
+#            table(factor(medAgeSig$StudyID, 
+#                            levels = unique(ageResSig$StudyID)))
+#            ) #p=0.24; x2 = 24
+
+table(as.factor(medAgeSig$StudyID), exclude = F)
+```
+
+*Function to extract summary stats for mediation*
+```{r}
+extract_mediation_summary <- function (x) { 
+
+  clp <- 100 * x$conf.level
+  isLinear.y <- ((class(x$model.y)[1] %in% c("lm", "rq")) || 
+                   (inherits(x$model.y, "glm") && x$model.y$family$family == 
+                      "gaussian" && x$model.y$family$link == "identity") || 
+                   (inherits(x$model.y, "survreg") && x$model.y$dist == 
+                      "gaussian"))
+
+  printone <- !x$INT && isLinear.y
+
+  if (printone) {
+
+    smat <- c(x$d1, x$d1.ci, x$d1.p)
+    smat <- rbind(smat, c(x$z0, x$z0.ci, x$z0.p))
+    smat <- rbind(smat, c(x$tau.coef, x$tau.ci, x$tau.p))
+    smat <- rbind(smat, c(x$n0, x$n0.ci, x$n0.p))
+
+    rownames(smat) <- c("ACME", "ADE", "Total Effect", "Prop. Mediated")
+
+  } else {
+    smat <- c(x$d0, x$d0.ci, x$d0.p)
+    smat <- rbind(smat, c(x$d1, x$d1.ci, x$d1.p))
+    smat <- rbind(smat, c(x$z0, x$z0.ci, x$z0.p))
+    smat <- rbind(smat, c(x$z1, x$z1.ci, x$z1.p))
+    smat <- rbind(smat, c(x$tau.coef, x$tau.ci, x$tau.p))
+    smat <- rbind(smat, c(x$n0, x$n0.ci, x$n0.p))
+    smat <- rbind(smat, c(x$n1, x$n1.ci, x$n1.p))
+    smat <- rbind(smat, c(x$d.avg, x$d.avg.ci, x$d.avg.p))
+    smat <- rbind(smat, c(x$z.avg, x$z.avg.ci, x$z.avg.p))
+    smat <- rbind(smat, c(x$n.avg, x$n.avg.ci, x$n.avg.p))
+
+    rownames(smat) <- c("ACME (control)", "ACME (treated)", 
+                        "ADE (control)", "ADE (treated)", "Total Effect", 
+                        "Prop. Mediated (control)", "Prop. Mediated (treated)", 
+                        "ACME (average)", "ADE (average)", "Prop. Mediated (average)")
+
+  }
+
+  colnames(smat) <- c("Estimate", paste(clp, "% CI Lower", sep = ""), 
+                      paste(clp, "% CI Upper", sep = ""), "p-value")
+  smat
+
+}
+```
+
+*Mediation through cell type*
+```{r}
+load("mediation_data_2021-06-03.Rdata", verbose=T)
+library(mediation)
+install.packages("latticeExtra")
+head(df)
+
+
+colnames(df)
+temp <- df[,c("Bcell","mompsych_33m","SMFQ_10y")]
+temp <- temp[complete.cases(temp),]
+mediator <- lm(Bcell ~ mompsych_33m, data = temp)
+broom::tidy(mediator)
+dv <- lm(SMFQ_10y ~ mompsych_33m + Bcell, data = temp)
+broom::tidy(dv)
+set.seed(88) #so it is reproducible
+results = suppressMessages(mediate(mediator, dv, treat='mompsych_33m', mediator='Bcell', boot=T))
+    
+    #obtaining mediation results
+temp <- extract_mediation_summary(results)
+
+for(i in c("Bcell", "CD4T", "CD8T", "Gran", "Mono", "NK")){
+  if(i =="Bcell"){cellMedResults <- data.frame()}
+  for(z in c("mompsych_33m", "oneadult_47m","abuse_18m","nbhqual_21mD",
+             "parcruelty_8m","r_faminstability_57m","Fscore_fixed_61m")){
+    print(paste(i, z, sep = " : "))
+    
+    temp <- df[,c(z, "Bcell", "CD4T", "CD8T", "Gran", "Mono", "NK", 
+                  "SMFQ_10y","WHITE", "Female", "mom_birthage", "ppregnum", "ed_momgest", "mom_age")]
+    temp <- temp[complete.cases(temp),]
+    colnames(temp)[colnames(temp)==i] <- "mediator"
+    colnames(temp)[colnames(temp)==z] <- "exposure"
+    mediator <- lm(mediator ~ exposure, data = temp)
+    dv <- lm(SMFQ_10y ~ exposure + mediator+ #Bcell + CD4T + CD8T + Gran + Mono + NK + 
+               WHITE + Female + ppregnum + ed_momgest + mom_age, data = temp)
+    
+    set.seed(88) #so it is reproducible
+    results = suppressMessages(mediate(mediator, dv, treat='exposure', mediator='mediator', boot=T))
+    res <- data.frame(extract_mediation_summary(results),
+                      adversity = z, 
+                      mediator = i, 
+                      N= length(mediator$residuals))
+    cellMedResults <- rbind(cellMedResults, res)
+    
+    rm(temp, mediator, dv, results, res)
+  }
+  
+}
+dim(cellMedResults)/6/4
+cellMedResults$Analysis <- rownames(cellMedResults)[1:4]
+rownames(cellMedResults) <- 1:nrow(cellMedResults)
+
+acme <- cellMedResults[cellMedResults$Analysis == "ACME",]
+acme[acme$p.value<0.05,]
+prop <- cellMedResults[cellMedResults$Analysis == "Prop. Mediated",]
+summary(prop$Estimate *100)
+summary(abs(prop$Estimate *100))
+min(prop$p.value)
+
+a <- ggplot(prop, aes(y = adversity, x= -log10(p.value), fill = mediator))+
+  geom_bar(stat= "identity", position=position_dodge(), alpha=0.77, col='black')+
+  theme_classic()+
+  geom_vline(xintercept = -log10(0.05), col="darkred",linetype=3)+
+  scale_fill_viridis(discrete=T, end = 0.88, "Mediator")+
+  ylab("")+
+  xlab("-log10(p-value)")+
+  scale_y_discrete(labels = c("Maternal psychopathology","One adult household",
+                              "Physical/sexual abuse",
+                              "Neighborhood disadvantage",
+                              "Caregiver emotional/physical abuse",
+                              "Family instability","Financial hardship"))+
+  theme(axis.text = element_text(color="black", size =10),
+        axis.title = element_text(color="black", size =11),
+        legend.text = element_text(color="black", size =10),
+        legend.title = element_text(color="black", size =11))
+
+
+b <- ggplot(prop, aes(y = adversity, x= Estimate*100, fill = mediator))+
+  geom_bar(stat= "identity", position=position_dodge(), alpha=0.77, col="black")+
+  theme_classic()+
+  #geom_vline(xintercept = -log10(0.05), col="darkred",linetype=3)+
+  scale_fill_viridis(discrete=T, end = 0.88, "Mediator")+
+  ylab("")+
+  xlab("Indirect effect (% mediated)")+
+  xlim(-10,10)+
+  scale_y_discrete(labels = c("Maternal psychopathology","One adult household",
+                              "Physical/sexual abuse",
+                              "Neighborhood disadvantage",
+                              "Caregiver emotional/physical abuse",
+                              "Family instability","Financial hardship"))+
+  theme(axis.text = element_text(color="black", size =10),
+        axis.title = element_text(color="black", size =11),
+        legend.text = element_text(color="black", size =10),
+        legend.title = element_text(color="black", size =11))
+
+cowplot::get_legend(a)
+cowplot::get_y_axis(a)
+gridExtra::grid.arrange(b+theme(legend.position = "none"), 
+                        a+theme(legend.position = "none"), 
+                        cowplot::get_legend(a), nrow=1)
+
+```
+
+
+*SLCMA of GenR and FFCWS*
+```{r}
+load("ffcwsSLCMAresult_2024-03-25B.Rdata", verbose=T)
+parSLCMA[[1]] #age 5 - NS p =0.96 VS age 1
+depSLCMA[[1]] # age 3 - significant p = 5.205691e-11 VS age 3!!
+oneadultSLCMA[[1]] # age 1 - NS p=0.96 VS 42m age 3.5
+faminstSLCMA[[1]] #age 1 - NS p =0.30 vs age 5
+fhSLCMA[[1]] #accumulation - p=0.0099 vs age 5
+
+parSLCMA[[2]] #age 3: 344:973 = 344/(344+973) = 26.1%
+depSLCMA[[2]] #age 3:   384:1327 =  384/( 384+1327) = 22.4%
+oneadultSLCMA[[2]] #age 3: 395:1304 = 395/(395+1304) = 23.2%
+faminstSLCMA[[2]] #age 5: 436:1280 = 436/(436+1280) = 25.4%
+fhSLCMA[[2]] #age 5: 627:1075 = 627/(627+1075) = 36.8%
+
+
+load("genrSLCMAresult_2023-12-28.Rdata", verbose=T)
+faminstSLCMA[[1]] #age 3
+fscoreSLCMA[[1]] #recency
+
+```
+
+*Prevalence plots*
+```{r}
+prevAdv <- rbind(data.frame(adversity = c("Caregiver emotional/physical abuse",
+                                          "Sexual/physical abuse",
+                                          "Maternal psychopathology",
+                                          "One adult household",
+                                          "Family instability",
+                                          "Financial hardship",
+                                          "Neighborhood disadvantage"
+                                          ),
+                            values = c(4.1, 3.3, 13.5, 5.4,3.7,6.7,7.0),
+                            dataset="ALSPAC"),
+                 data.frame(adversity = c("Caregiver emotional/physical abuse",
+                                          "Maternal psychopathology",
+                                          "Family instability",
+                                          "Financial hardship"),
+                            values = round(c(34/315, 14/316, 21/350,23/313)*100,1),
+                            dataset="GenR"),
+                 data.frame(adversity = c("Caregiver emotional/physical abuse",
+                                          "Maternal psychopathology",
+                                          "One adult household",
+                                          "Family instability",
+                                          "Financial hardship"),
+                            values = c(26.1, 22.4,23.2, 25.4, 36.8), 
+                            dataset="FFCWS"))
+
+
+prevAdv$adversity <- factor(prevAdv$adversity, levels = rev(prevAdv$adversity[1:7]))
+prevAdv$dataset <- factor(prevAdv$dataset, levels = c("ALSPAC","FFCWS","GenR"))
+yLabels <- c("Neighborhood disadvantage\nALSPAC: 21m\n", 
+             "Financial hardship\nALSPAC: 61m\nFFCWS: 60m\nGenR: 36m\n", 
+             "Family instability\nALSPAC: 57m\nFFCWS: 60m\nGenR: 72m\n", 
+             "One adult household\nALSPAC: 47m\nFFCWS: 36m\n", 
+             "Maternal psychopathology\nALSPAC: 33m\nFFCWS: 36m\nGenR: 36m\n", 
+             "Sexual/physical abuse\nALSPAC: 18m\n", 
+             "Caregiver emotional/physical abuse\nALSPAC:   8m\nFFCWS: 36m\nGenR: 36m\n")
+prevAdv$dataset <- factor(prevAdv$dataset, levels = c("GenR","FFCWS","ALSPAC"))
+
+ggplot(prevAdv, aes(x = values, y = adversity, fill = dataset))+
+  geom_bar(stat="identity", alpha =0.77, col="black", width=0.7,
+           position=position_dodge2(preserve = "single"))+
+  theme_classic()+
+  #scale_fill_viridis(discrete=T, end = 0.88, "Dataset")+
+  scale_fill_manual("Dataset",
+                    values = viridis(n =3, end =0.88),
+                    breaks= c("ALSPAC","FFCWS","GenR"))+
+  xlab("Prevalence")+
+  ylab("")+
+  geom_text(aes(x = values, label = paste0(values,"%")), hjust = -0.17,
+            position = position_dodge2(preserve="single", width=0.7))+
+    theme(axis.text = element_text(color="black", size =10),
+        axis.title = element_text(color="black", size =11),
+        legend.text = element_text(color="black", size =10),
+        legend.title = element_text(color="black", size =11))+
+  scale_y_discrete(labels = c(yLabels))+
+  scale_x_continuous(expand = c(0,0), limits = c(0,42))
+
+write.csv(prevAdv, "Mediation_ED_Fig1_2024-09-03.csv", quote=F, row.names=F)
+
+```
+
+*Colocalization analyses - see script from Mannan Luo instead (too long for here)*
