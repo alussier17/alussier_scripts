@@ -1,6 +1,10 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
 # 1. Human epigenetics projects
+##[DNA methylation mediates the link between adversity and depressive symptoms](/Mediation_adversity-DNAm-depression)
+    A. Manuscripts
+    B. Scripts
+    
 ## [Two-sample Mendelian Randomization of adversity-associated DNAm and health outcomes - American Journal of Epidemiology, 2024](/DNAm_MR_AJE)
     A. Manuscripts
     B. Scripts
@@ -13,7 +17,7 @@
 ## [Childhood adversity and DNA methylation at age 7 and impact of data version differences(ALSPAC) - Epigenetics, 2022](/ALSPAC_data_differences)
     A. Manuscripts
     B. SLCMA scripts
-    C. Analaysis scripts
+    C. Analysis scripts
 
 ## [DNA methylation signature of human FASD (NeuroDevNet cohort) - Epigenetics & Chromatin, 2016](/DNAm_signature_FASD)
     A. Manuscript
@@ -69,11 +73,11 @@
         • Crowdsourced genealogies and genomes. Science, 2018.
     B. Scripts
         • Reduced representation bisulfite sequencing alignment
-        • Forthcoming
+        • SLCMA toy data and example scripts
 
 # 4. Contact information
         Alexandre Lussier, PhD
-        Instructor, Department of Psychiatry
+        Assistant Professor, Department of Psychiatry
         Massachusetts General Hospital
         alussier[at]mgh.harvard.edu
 [Google Scholar](https://scholar.google.ca/citations?user=l1MwrMkAAAAJ&hl=en)
