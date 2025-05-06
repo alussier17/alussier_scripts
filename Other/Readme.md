@@ -17,4 +17,4 @@
 ## b. Scripts
   • Reduced representation bisulfite sequencing alignments (RRBS)
   
-  • More to come
+  • SLCMA toy dataset and example
