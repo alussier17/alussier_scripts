@@ -2,7 +2,6 @@ README of mediation scripts
 Filename				Purpose
 
 2. TE_SLCMA_2021-07-29.Rmd	SLCMA to identify life course hypothesis for each of 7 adversities. 
-	-Mannan, this step will probably be omitted in your own analysis, but included for reference. 
 
 3. create_regressed_mvalues_2021-03-25.R	Script to prepare DNAm data for mediation analysis. Regressed all covariates on DNAm values (x7).
 
