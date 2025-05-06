@@ -1,7 +1,7 @@
 #### Welcome to my github repository. Here, you can find my various manuscripts and the scripts used to generate their results. Please see below for more information and contact details. - Alex. 
 
 # 1. Human epigenetics projects
-##[DNA methylation mediates the link between adversity and depressive symptoms](/Mediation_adversity-DNAm-depression)
+## [DNA methylation mediates the link between adversity and depressive symptoms](/Mediation_adversity-DNAm-depression)
     A. Manuscripts
     B. Scripts
     
